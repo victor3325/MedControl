@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "835313971214",
+    "project_id": "vkxd-e7736",
+    "storage_bucket": "vkxd-e7736.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:835313971214:android:9017dc9b70750ec4040c5f",
+        "android_client_info": {
+          "package_name": "com.medcontrol"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBtBnLoySRZ5SQ01UZs0mBMK1RkxQJsWAg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

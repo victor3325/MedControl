@@ -6,76 +6,77 @@ import UserRepository from './src/repositories/UserRepository';
 import MedicationRepository from './src/repositories/MedicationRepository';
 import { initDatabase } from './src/database/DatabaseInit';
 import notifee, { AndroidImportance, AuthorizationStatus } from '@notifee/react-native';
-import { PermissionsAndroid } from 'react-native';
+import { Platform, Alert, PermissionsAndroid } from 'react-native';
+import { checkBatteryOptimization, openBatterySettings } from './src/utils/BatteryOptimization';
 
 export default function App() {
 
-  // Função para solicitar permissão de notificações
+  // 🔔 Solicitar permissão do Android para POST_NOTIFICATIONS (Android 13+)
   async function requestNotificationPermission() {
-    const granted = await PermissionsAndroid.request(
-      PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-      {
-        title: 'Permissão para Notificação',
-        message: 'Este aplicativo precisa da permissão para enviar notificações.',
-        buttonNeutral: 'Perguntar depois',
-        buttonNegative: 'Negar',
-        buttonPositive: 'Permitir',
-      }
-    );
-    return granted === PermissionsAndroid.RESULTS.GRANTED;
+    if (Platform.OS === 'android' && Platform.Version >= 33) {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
+        {
+          title: 'Permissão para Notificações',
+          message: 'O app precisa de permissão para enviar notificações.',
+          buttonPositive: 'Permitir',
+          buttonNegative: 'Negar',
+          buttonNeutral: 'Perguntar depois',
+        }
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    }
+    return true; // iOS ou Android < 13
   }
 
-  // Função para criar o canal de notificação
+  // 🔧 Criar canal de notificação com notifee
   const createNotificationChannel = async () => {
     try {
-      console.log('Solicitando permissão para notificações...');
+      const settings = await notifee.requestPermission();
 
-      // Verifique a permissão de notificação
-      const permissionStatus = await notifee.requestPermission();
-
-      console.log('Status de permissão:', permissionStatus); // Log de permissão
-
-      // Verifique a permissão diretamente
-      if (permissionStatus?.authorizationStatus === AuthorizationStatus.AUTHORIZED) {
-        console.log('Permissão concedida para notificações');
-
-        // Criação do canal de notificações
+      if (settings.authorizationStatus >= AuthorizationStatus.AUTHORIZED) {
         const channelId = await notifee.createChannel({
           id: 'default',
-          name: 'Default Channel',
+          name: 'Canal Padrão',
           sound: 'default',
-          importance: AndroidImportance.HIGH, // Garantir que você usa diretamente o AndroidImportance do Notifee
+          importance: AndroidImportance.HIGH,
         });
-
-        console.log(`Canal de notificação criado com ID: ${channelId}`);
-      } else if (permissionStatus?.authorizationStatus === AuthorizationStatus.DENIED) {
-        console.log('Permissão para notificações foi negada');
-        alert('Você precisa conceder permissão para notificações nas configurações do dispositivo.');
+        console.log(`📡 Canal criado: ${channelId}`);
       } else {
-        console.log('Status de permissão para notificações desconhecido', permissionStatus);
+        Alert.alert(
+          'Permissão de Notificação Negada',
+          'Ative manualmente nas configurações para receber alertas.'
+        );
       }
     } catch (error) {
-      console.error('Erro ao criar o canal de notificação:', error);
+      console.error('❌ Erro ao configurar notificações:', error);
     }
   };
 
+  // 🧠 Setup geral
   useEffect(() => {
     const setupApp = async () => {
-      // Solicitar permissão antes de criar o canal de notificação
       const permissionGranted = await requestNotificationPermission();
+
       if (permissionGranted) {
-        // Criar o canal de notificações
         await createNotificationChannel();
-      } else {
-        console.log('Permissão de notificação não concedida');
       }
 
-      // Inicializa o banco de dados
-      initDatabase();
+      const ignoring = await checkBatteryOptimization();
+      if (!ignoring) {
+        Alert.alert(
+          '⚠️ Otimização de Bateria Ativa',
+          'Isso pode atrasar notificações importantes. Desative para que o app funcione corretamente.',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { text: 'Abrir Configurações', onPress: () => openBatterySettings() }
+          ]
+        );
+      }
 
-      // Cria as tabelas de usuários e medicamentos
-      UserRepository.createTable();
-      MedicationRepository.createTable();
+      initDatabase();
+      await UserRepository.createTable();
+      await MedicationRepository.createTable();
     };
 
     setupApp();
