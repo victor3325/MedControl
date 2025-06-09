@@ -8,10 +8,10 @@ import { initDatabase } from './src/database/DatabaseInit';
 import notifee, { AndroidImportance, AuthorizationStatus } from '@notifee/react-native';
 import { Platform, Alert, PermissionsAndroid } from 'react-native';
 import { checkBatteryOptimization, openBatterySettings } from './src/utils/BatteryOptimization';
+import NotificationService from './src/services/NotificationService';  // ajuste o caminho se precisar
 
 export default function App() {
 
-  // 🔔 Solicitar permissão do Android para POST_NOTIFICATIONS (Android 13+)
   async function requestNotificationPermission() {
     if (Platform.OS === 'android' && Platform.Version >= 33) {
       const granted = await PermissionsAndroid.request(
@@ -26,10 +26,9 @@ export default function App() {
       );
       return granted === PermissionsAndroid.RESULTS.GRANTED;
     }
-    return true; // iOS ou Android < 13
+    return true;
   }
 
-  // 🔧 Criar canal de notificação com notifee
   const createNotificationChannel = async () => {
     try {
       const settings = await notifee.requestPermission();
@@ -53,7 +52,54 @@ export default function App() {
     }
   };
 
-  // 🧠 Setup geral
+  const verifyBatteryOptimization = async () => {
+    const ignoring = await checkBatteryOptimization();
+    if (!ignoring) {
+      Alert.alert(
+        '⚠️ Otimização de Bateria Ativa',
+        'Isso pode atrasar notificações importantes. Desative para que o app funcione corretamente.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Abrir Configurações', onPress: () => openBatterySettings() }
+        ],
+        { cancelable: true }
+      );
+    }
+  };
+
+  const clearAndScheduleNotifications = async () => {
+    try {
+      await notifee.cancelAllNotifications();
+
+      const medications = await MedicationRepository.getAll();
+
+      for (const med of medications) {
+        // Garanta que med.horarios seja array de strings
+        let horarios = med.horarios;
+        if (!Array.isArray(horarios)) {
+          try {
+            horarios = JSON.parse(horarios);
+            if (!Array.isArray(horarios)) horarios = [];
+          } catch {
+            horarios = [];
+          }
+        }
+
+        if (horarios.length > 0) {
+          await NotificationService.scheduleMedicationNotifications({
+            id: med.id,
+            nome: med.nome,
+            horarios,
+          });
+        }
+      }
+
+      console.log('🔁 Notificações agendadas com base no banco de dados via NotificationService.');
+    } catch (error) {
+      console.error('Erro ao reagendar notificações:', error);
+    }
+  };
+
   useEffect(() => {
     const setupApp = async () => {
       const permissionGranted = await requestNotificationPermission();
@@ -62,21 +108,13 @@ export default function App() {
         await createNotificationChannel();
       }
 
-      const ignoring = await checkBatteryOptimization();
-      if (!ignoring) {
-        Alert.alert(
-          '⚠️ Otimização de Bateria Ativa',
-          'Isso pode atrasar notificações importantes. Desative para que o app funcione corretamente.',
-          [
-            { text: 'Cancelar', style: 'cancel' },
-            { text: 'Abrir Configurações', onPress: () => openBatterySettings() }
-          ]
-        );
-      }
+      await verifyBatteryOptimization();
 
       initDatabase();
       await UserRepository.createTable();
       await MedicationRepository.createTable();
+
+      await clearAndScheduleNotifications();
     };
 
     setupApp();
