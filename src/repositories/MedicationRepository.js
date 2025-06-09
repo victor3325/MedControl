@@ -1,14 +1,13 @@
 import { openDatabase } from 'react-native-sqlite-storage';
+import dayjs from 'dayjs';
 
 const db = openDatabase({ name: 'medcontrol.db' });
 
 const formatDateToISO = (dateStr) => {
-  // Se for uma string tipo "dd/mm/yyyy", transforma para ISO
   if (typeof dateStr === 'string' && dateStr.includes('/')) {
     const [dia, mes, ano] = dateStr.split('/');
     return `${ano}-${mes}-${dia}`;
   }
-  // Se já for ISO ou Date, retorna como está
   return new Date(dateStr).toISOString().split('T')[0];
 };
 
@@ -84,7 +83,6 @@ const MedicationRepository = {
             for (let i = 0; i < rows.length; i++) {
               const item = rows.item(i);
               item.horarios = JSON.parse(item.horarios);
-              // Mantém dataCadastro no formato ISO
               meds.push(item);
             }
             console.log(`✅ ${meds.length} medicamentos encontrados.`);
@@ -112,7 +110,7 @@ const MedicationRepository = {
             for (let i = 0; i < rows.length; i++) {
               const item = rows.item(i);
               item.horarios = JSON.parse(item.horarios);
-              meds.push(item); // mantém dataCadastro como ISO
+              meds.push(item);
             }
             console.log(`✅ ${meds.length} medicamentos encontrados.`);
             resolve(meds);
@@ -127,14 +125,24 @@ const MedicationRepository = {
     });
   },
 
-  deleteUserIdNull: async () => {
-    try {
-      const query = 'DELETE FROM medications WHERE userId IS NULL';
-      await db.executeSql(query);
-      console.log('Medicamentos com userId null excluídos com sucesso.');
-    } catch (error) {
-      console.error('Erro ao deletar medicamentos com userId null:', error);
-    }
+  deleteUserIdNull: () => {
+    return new Promise((resolve) => {
+      db.transaction(tx => {
+        tx.executeSql(
+          'DELETE FROM medications WHERE userId IS NULL;',
+          [],
+          () => {
+            console.log('Medicamentos com userId null excluídos com sucesso.');
+            resolve(true);
+          },
+          (_, error) => {
+            console.error('Erro ao deletar medicamentos com userId null:', error);
+            resolve(false);
+            return true;
+          }
+        );
+      });
+    });
   },
 
   deleteMedication: (id) => {
@@ -158,13 +166,79 @@ const MedicationRepository = {
     });
   },
 
-  deleteMedicationsByUserId: async (userId) => {
-    try {
-      const query = 'DELETE FROM medications WHERE userId = ?';
-      await db.executeSql(query, [userId]);
-    } catch (error) {
-      console.error('Erro ao excluir medicamentos:', error);
-    }
+  getProximosMedicamentos: (userId) => {
+     return new Promise((resolve, reject) => {
+       if (!userId) {
+         resolve([]);
+         return;
+       }
+
+       const now = dayjs();
+
+       db.transaction(tx => {
+         tx.executeSql(
+           `SELECT id, nome, mgPorComprimido, mgPorDose, dosesPorDia, estoque, horarios, dataCadastro
+            FROM medications
+            WHERE userId = ?
+            ORDER BY dataCadastro ASC;`,
+           [userId],
+           (_, { rows }) => {
+             const medicamentos = [];
+             for (let i = 0; i < rows.length; i++) {
+               const med = rows.item(i);
+               let horariosArray = [];
+               try {
+                 horariosArray = JSON.parse(med.horarios);
+               } catch {
+                 horariosArray = [];
+               }
+
+               // calcula próximos horários futuros
+               const proximosHorarios = horariosArray
+                 .map(horarioStr => {
+                   const [hour, minute] = horarioStr.split(':').map(Number);
+                   return dayjs().hour(hour).minute(minute).second(0);
+                 })
+                 .filter(h => h.isAfter(now))
+                 .sort((a, b) => (a.isBefore(b) ? -1 : 1));
+
+               if (proximosHorarios.length > 0) {
+                 medicamentos.push({
+                   id: med.id,
+                   nome: med.nome,
+                   dose: `${med.mgPorDose} mg`,
+                   quantidade: Math.ceil(med.mgPorDose / med.mgPorComprimido),
+                   horarios: horariosArray,  // **<- inclui o array original aqui**
+                   horario: proximosHorarios[0].format('HH:mm'), // próximo horário (opcional)
+                 });
+               }
+             }
+             resolve(medicamentos);
+           },
+           (_, error) => {
+             reject(error);
+             return false;
+           }
+         );
+       });
+     });
+   },
+
+  deleteMedicationsByUserId: (userId) => {
+    return new Promise(resolve => {
+      db.transaction(tx => {
+        tx.executeSql(
+          'DELETE FROM medications WHERE userId = ?;',
+          [userId],
+          () => resolve(true),
+          (_, error) => {
+            console.error('Erro ao excluir medicamentos:', error);
+            resolve(false);
+            return true;
+          }
+        );
+      });
+    });
   },
 
   updateMedication: (med) => {

@@ -121,6 +121,8 @@ const EditarMedicamentoScreen = () => {
       style={styles.container}
     >
       <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+
+        <Text style={styles.label}>Nome do medicamento</Text>
         <TextInput
           style={styles.input}
           value={nome}
@@ -129,6 +131,7 @@ const EditarMedicamentoScreen = () => {
           placeholderTextColor="#bbb"
         />
 
+        <Text style={styles.label}>Mg por comprimido</Text>
         <TextInputMask
           style={styles.input}
           type={'only-numbers'}
@@ -140,6 +143,7 @@ const EditarMedicamentoScreen = () => {
           placeholderTextColor="#bbb"
         />
 
+        <Text style={styles.label}>Mg por dose</Text>
         <TextInputMask
           style={styles.input}
           type={'only-numbers'}
@@ -151,6 +155,7 @@ const EditarMedicamentoScreen = () => {
           placeholderTextColor="#bbb"
         />
 
+        <Text style={styles.label}>Doses por dia</Text>
         <TextInputMask
           style={styles.input}
           type={'only-numbers'}
@@ -162,6 +167,7 @@ const EditarMedicamentoScreen = () => {
           placeholderTextColor="#bbb"
         />
 
+        <Text style={styles.label}>Estoque</Text>
         <TextInputMask
           style={styles.input}
           type={'only-numbers'}
@@ -212,6 +218,12 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     paddingHorizontal: width * 0.05,
     paddingVertical: height * 0.02,
+  },
+  label: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginBottom: 5,
+    fontSize: 14,
   },
   input: {
     height: 40,

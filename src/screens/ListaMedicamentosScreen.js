@@ -13,7 +13,21 @@ const ListaMedicamentosScreen = ({ navigation }) => {
     const carregarDados = async () => {
       if (user) {
         const dados = await MedicationRepository.getMedicationsByUserId(user.id);
-        setMedicamentos(atualizarEstoqueComDias(dados));
+        const atualizados = atualizarEstoqueComDias(dados);
+        setMedicamentos(atualizados);
+
+        // Filtra medicamentos com estoque baixo (diasRestantes <= 10)
+        const estoqueBaixoMedicamentos = atualizados.filter(
+          (med) => parseFloat(med.diasRestantes) <= 10
+        );
+
+        if (estoqueBaixoMedicamentos.length > 0) {
+          const nomes = estoqueBaixoMedicamentos.map((med) => med.nome).join(', ');
+          Alert.alert(
+            'Atenção',
+            `Os seguintes medicamentos estão com estoque baixo:\n${nomes}`
+          );
+        }
       }
     };
 
@@ -46,7 +60,6 @@ const ListaMedicamentosScreen = ({ navigation }) => {
       const diasPassados = Math.floor((hoje - dataCadastro) / umDiaEmMs);
       const dosesConsumidas = diasPassados * dosesPorDia;
 
-      // Verifica se há risco de divisão por zero
       const fatorConversao = mgPorComprimido > 0 && mgPorDose > 0
         ? mgPorComprimido / mgPorDose
         : 0;
@@ -93,24 +106,34 @@ const ListaMedicamentosScreen = ({ navigation }) => {
     ]);
   };
 
-  const renderItem = ({ item }) => (
-    <View style={styles.card}>
-      <Text style={styles.title}>{item.nome}</Text>
-      <Text style={styles.text}>Mg/Comprimido: {item.mgPorComprimido}mg</Text>
-      <Text style={styles.text}>Mg/Dose: {item.mgPorDose}mg</Text>
-      <Text style={styles.text}>Doses por dia: {item.dosesPorDia}</Text>
-      <Text style={styles.text}>Estoque atual: {parseFloat(item.estoqueAtual).toLocaleString('pt-BR')}</Text>
-      <Text style={styles.text}>Dias restantes: {parseFloat(item.diasRestantes).toLocaleString('pt-BR')}</Text>
-      <Text style={styles.text}>Dias desde o cadastro: {item.diasPassados}</Text>
-      <Text style={styles.text}>Data de Cadastro: {item.dataCadastroFormatada}</Text>
+  const renderItem = ({ item }) => {
+    const estoqueBaixo = parseFloat(item.diasRestantes) <= 10;
 
-      <View style={styles.actions}>
-        <Button title="Editar" onPress={() => navigation.navigate('EditarMedicamento', { medicamento: item })} />
-        <View style={{ width: 10 }} />
-        <Button title="Excluir" color="red" onPress={() => handleExcluir(item.id)} />
+    return (
+      <View style={styles.card}>
+        <Text style={styles.title}>{item.nome}</Text>
+        <Text style={styles.text}>Mg/Comprimido: {item.mgPorComprimido}mg</Text>
+        <Text style={styles.text}>Mg/Dose: {item.mgPorDose}mg</Text>
+        <Text style={styles.text}>Doses por dia: {item.dosesPorDia}</Text>
+        <Text style={styles.text}>
+          Estoque atual: {parseFloat(item.estoqueAtual).toLocaleString('pt-BR')}
+        </Text>
+        <Text style={[styles.text, estoqueBaixo && styles.estoqueBaixo]}>
+          Dias restantes: {parseFloat(item.diasRestantes).toLocaleString('pt-BR')}
+        </Text>
+        <Text style={styles.text}>Dias desde o cadastro: {item.diasPassados}</Text>
+        <Text style={styles.text}>Data de Cadastro: {item.dataCadastroFormatada}</Text>
+
+        {estoqueBaixo && <Text style={styles.alerta}>⚠️ Estoque baixo! Considere repor.</Text>}
+
+        <View style={styles.actions}>
+          <Button title="Editar" onPress={() => navigation.navigate('EditarMedicamento', { medicamento: item })} />
+          <View style={{ width: 10 }} />
+          <Button title="Excluir" color="red" onPress={() => handleExcluir(item.id)} />
+        </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -147,6 +170,15 @@ const styles = StyleSheet.create({
   text: {
     fontSize: 14,
     color: '#bbb',
+  },
+  estoqueBaixo: {
+    color: '#ff4444',
+    fontWeight: 'bold',
+  },
+  alerta: {
+    color: '#ff4444',
+    fontWeight: 'bold',
+    marginTop: 5,
   },
   actions: {
     flexDirection: 'row',
