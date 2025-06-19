@@ -5,8 +5,9 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
-  Alert,
   TouchableOpacity,
+  Button,
+  TextInput,
 } from 'react-native';
 
 import Share from 'react-native-share';  // <--- Import do react-native-share
@@ -14,34 +15,45 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons'; // import d
 import { useUser } from '../context/UserContext';
 import MedicationRepository from '../repositories/MedicationRepository';
 import { useFocusEffect } from '@react-navigation/native';
-
-const safeParseHorarios = (horarios) => {
-  if (!horarios) return [];
-  if (Array.isArray(horarios)) return horarios;
-  if (typeof horarios === 'object') return Object.values(horarios);
-  if (typeof horarios === 'string') {
-    try {
-      return JSON.parse(horarios);
-    } catch (e) {
-      if (horarios.includes(',')) {
-        return horarios.split(',').map(h => h.trim());
-      }
-      console.warn('JSON inválido para horários:', horarios, e);
-      return [];
-    }
-  }
-  return [];
-};
-
-const calcularQuantidade = (med) => {
-  if (!med.mgPorDose || !med.mgPorComprimido) return 0;
-  return Math.ceil(med.mgPorDose / med.mgPorComprimido);
-};
+import DateUtils from '../utils/DateUtils';
+import MedicationUtils from '../utils/MedicationUtils';
+import AlertUtils from '../utils/AlertUtils';
+import UserRepository from '../repositories/UserRepository';
+import styles from '../themes/HomeScreen.styles';
 
 const HomeScreen = ({ navigation }) => {
-  const { user } = useUser();
+  const { user, setUser } = useUser();
   const [proximosMedicamentos, setProximosMedicamentos] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [alergiaInput, setAlergiaInput] = useState('');
+  const [alergias, setAlergias] = useState(user?.alergias || []);
+
+  // Atualiza alergias do contexto se usuário mudar
+  React.useEffect(() => {
+    setAlergias(user?.alergias || []);
+  }, [user]);
+
+  const handleAddAlergia = async () => {
+    if (alergiaInput.trim() && !alergias.includes(alergiaInput.trim())) {
+      const novasAlergias = [...alergias, alergiaInput.trim()];
+      setAlergias(novasAlergias);
+      setAlergiaInput('');
+      // Atualiza no banco e contexto
+      if (user) {
+        await UserRepository.updateUser(user.id, user.username, novasAlergias);
+        setUser({ ...user, alergias: novasAlergias });
+      }
+    }
+  };
+
+  const handleRemoveAlergia = async (alergia) => {
+    const novasAlergias = alergias.filter(a => a !== alergia);
+    setAlergias(novasAlergias);
+    if (user) {
+      await UserRepository.updateUser(user.id, user.username, novasAlergias);
+      setUser({ ...user, alergias: novasAlergias });
+    }
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -58,7 +70,7 @@ const HomeScreen = ({ navigation }) => {
 
           const medsComHorariosParseados = meds.map(med => ({
             ...med,
-            horarios: safeParseHorarios(med.horarios),
+            horarios: DateUtils.safeParseHorarios(med.horarios),
           }));
 
           const now = new Date();
@@ -86,49 +98,6 @@ const HomeScreen = ({ navigation }) => {
     }, [user])
   );
 
-  const exportarLista = async () => {
-    if (!user?.id) {
-      Alert.alert('Erro', 'Usuário não definido.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const todosMedicamentos = await MedicationRepository.getMedicationsByUserId(user.id);
-
-      if (todosMedicamentos.length === 0) {
-        Alert.alert('Lista vazia', 'Não há medicamentos para exportar.');
-        setLoading(false);
-        return;
-      }
-
-      const medsParseados = todosMedicamentos.map(med => ({
-        ...med,
-        horarios: safeParseHorarios(med.horarios),
-      }));
-
-      const mensagem = medsParseados
-        .map(med => {
-          const quantidade = calcularQuantidade(med);
-          return `• ${med.nome}\n  Dose: ${med.mgPorDose} mg\n  Quantidade: ${quantidade} comprimidos\n  Horários: ${med.horarios.join(', ')}`;
-        })
-        .join('\n\n');
-
-      const shareOptions = {
-        message: `Meus medicamentos cadastrados:\n\n${mensagem}`,
-        title: 'Lista Completa de Medicamentos',
-        failOnCancel: false,
-      };
-
-      await Share.open(shareOptions);
-    } catch (error) {
-      Alert.alert('Erro', 'Não foi possível compartilhar a lista.');
-      console.error('Erro ao compartilhar:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <View style={styles.container}>
       <View style={styles.welcomeContainer}>
@@ -139,6 +108,31 @@ const HomeScreen = ({ navigation }) => {
         )}
       </View>
 
+      {/* Campo de alergias */}
+      <Text style={{ color: '#fff', marginBottom: 5, marginTop: 10 }}>Sou alérgico(a) a:</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+        <TextInput
+          style={[styles.input, { flex: 1, marginBottom: 0 }]}
+          placeholder="Digite uma alergia"
+          value={alergiaInput}
+          onChangeText={setAlergiaInput}
+          placeholderTextColor="#888"
+        />
+        <Button title="Adicionar" onPress={handleAddAlergia} disabled={!alergiaInput.trim()} />
+      </View>
+      {alergias.length > 0 && (
+        <View style={{ marginBottom: 10 }}>
+          {alergias.map((alergia, idx) => (
+            <View key={alergia + idx} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={{ color: '#fff', flex: 1 }}>• {alergia}</Text>
+              <TouchableOpacity onPress={() => handleRemoveAlergia(alergia)}>
+                <Text style={{ color: '#E53935', marginLeft: 8 }}>Remover</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
+
       {loading ? (
         <ActivityIndicator size="large" color="#fff" />
       ) : proximosMedicamentos.length > 0 ? (
@@ -146,7 +140,7 @@ const HomeScreen = ({ navigation }) => {
           <Text style={styles.listaTitulo}>Próximos Medicamentos (em até 6h)</Text>
           <ScrollView style={styles.scrollArea}>
             {proximosMedicamentos.map(item => {
-              const quantidade = calcularQuantidade(item);
+              const quantidade = MedicationUtils.calcularQuantidade(item);
               return (
                 <View key={item.id} style={styles.medicamentoItem}>
                   <Text style={styles.medicamentoNome}>{item.nome}</Text>
@@ -160,16 +154,6 @@ const HomeScreen = ({ navigation }) => {
               );
             })}
           </ScrollView>
-
-          <View style={styles.buttonExportContainer}>
-            <TouchableOpacity
-              onPress={exportarLista}
-              style={styles.exportButton}
-              activeOpacity={0.7}
-            >
-              <Icon name="share-variant" size={28} color="#fff" />
-            </TouchableOpacity>
-          </View>
         </View>
       ) : (
         <Text style={styles.semMedicamentos}>Nenhum medicamento próximo encontrado.</Text>
@@ -196,92 +180,5 @@ const HomeScreen = ({ navigation }) => {
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    padding: 20,
-    flex: 1,
-    backgroundColor: '#121212',
-  },
-  welcomeContainer: {
-    marginBottom: 20,
-    alignItems: 'center',
-  },
-  welcomeText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  listaContainer: {
-    flex: 1,
-    marginBottom: 20,
-  },
-  listaTitulo: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  scrollArea: {
-    maxHeight: 300,
-  },
-  medicamentoItem: {
-    backgroundColor: '#1e1e1e',
-    padding: 15,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  medicamentoNome: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  medicamentoDetalhes: {
-    fontSize: 14,
-    color: '#ccc',
-    marginTop: 4,
-  },
-  medicamentoHorario: {
-    fontSize: 14,
-    color: '#ccc',
-    marginTop: 2,
-    fontStyle: 'italic',
-  },
-  semMedicamentos: {
-    color: '#aaa',
-    fontStyle: 'italic',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  buttonContainer: {
-    marginVertical: 5,
-  },
-  buttonExportContainer: {
-    marginTop: 10,
-    alignItems: 'center',
-  },
-  exportButton: {
-    backgroundColor: '#4CAF50', // verde bonito
-    padding: 14,
-    borderRadius: 30,
-    width: 56,
-    height: 56,
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-  },
-  navButton: {
-    backgroundColor: '#6200EE',
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  navButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-});
 
 export default HomeScreen;

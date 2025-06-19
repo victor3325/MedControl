@@ -17,6 +17,8 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import MedicationRepository from '../repositories/MedicationRepository';
 import { TextInputMask } from 'react-native-masked-text';
 import NotificationService from '../services/NotificationService'; // no topo do seu arquivo
+import DateUtils from '../utils/DateUtils';
+import AlertUtils from '../utils/AlertUtils';
 
 // Obtendo as dimensões da tela
 const { width, height } = Dimensions.get('window');
@@ -34,6 +36,7 @@ const EditarMedicamentoScreen = () => {
   const [dosesPorDia, setDosesPorDia] = useState(medicamento?.dosesPorDia || '');
   const [estoque, setEstoque] = useState(medicamento?.estoque || '');
   const [horarios, setHorarios] = useState(medicamento?.horarios || ['']);
+  const [dataCadastro, setDataCadastro] = useState(medicamento?.dataCadastro || '');
 
   const handleHorarioChange = (text, index) => {
     console.log(`Alterando horário no índice ${index}: ${text}`);
@@ -54,10 +57,12 @@ const EditarMedicamentoScreen = () => {
   };
 
   const handleSalvar = async () => {
-    console.log('Salvando as alterações...');
-
-    // Obter a data atual no formato desejado
-    const dataDeCadastro = medicamento.dataDeCadastro || new Date().toISOString(); // Se estiver vazio, atribui a data atual
+    console.log('[EditarMedicamentoScreen] Iniciando edição...');
+    let dataCadastroFinal = dataCadastro || medicamento.dataCadastro;
+    if (dataCadastroFinal && dataCadastroFinal.length <= 10) {
+      dataCadastroFinal = new Date(dataCadastroFinal + 'T00:00:00.000Z').toISOString();
+    }
+    console.log('[EditarMedicamentoScreen] dataCadastroFinal:', dataCadastroFinal);
 
     const updatedMedication = {
       id: medicamento.id,
@@ -67,37 +72,32 @@ const EditarMedicamentoScreen = () => {
       dosesPorDia,
       estoque,
       horarios,
-      dataDeCadastro, // Adicionando a data de cadastro atualizada
+      dataCadastro: dataCadastroFinal,
     };
-
-    console.log('Dados atualizados do medicamento:', updatedMedication);
+    console.log('[EditarMedicamentoScreen] updatedMedication:', updatedMedication);
 
     const sucesso = await MedicationRepository.updateMedication(updatedMedication);
+    console.log('[EditarMedicamentoScreen] sucesso update:', sucesso);
 
     if (sucesso) {
       try {
-        console.log('Cancelando notificações antigas...');
-        // Cancelar notificações antigas
+        console.log('[EditarMedicamentoScreen] Cancelando notificações antigas...');
         await NotificationService.cancelNotificationsByMedicationId(medicamento.id);
-
-        console.log('Agendando novas notificações...');
-        // Agendar novas notificações com os horários atualizados
+        console.log('[EditarMedicamentoScreen] Agendando novas notificações...');
         await NotificationService.scheduleMedicationNotifications({
           id: medicamento.id,
           nome,
           horarios,
         });
-
-        Alert.alert('Sucesso', 'Alterações salvas com sucesso!', [
-          { text: 'OK', onPress: () => navigation.goBack() },
-        ]);
+        console.log('[EditarMedicamentoScreen] Notificações agendadas com sucesso!');
+        AlertUtils.showSuccess('Alterações salvas com sucesso!', 'Sucesso');
       } catch (error) {
-        console.error('Erro ao atualizar notificações:', error);
-        Alert.alert('Erro', 'Erro ao atualizar as notificações.');
+        console.error('[EditarMedicamentoScreen] Erro ao atualizar notificações:', error);
+        AlertUtils.showError('Erro ao atualizar as notificações.', 'Erro');
       }
     } else {
-      console.error('Erro ao salvar as alterações.');
-      Alert.alert('Erro', 'Erro ao salvar as alterações.');
+      console.error('[EditarMedicamentoScreen] Erro ao salvar as alterações.');
+      AlertUtils.showError('Erro ao salvar as alterações.', 'Erro');
     }
   };
 

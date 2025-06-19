@@ -4,10 +4,11 @@ import { useUser } from '../context/UserContext';
 import UserRepository from '../repositories/UserRepository';
 import MedicationRepository from '../repositories/MedicationRepository'; // Supondo que haja um repositório para medicamentos
 import Icon from 'react-native-vector-icons/FontAwesome';
+import Share from 'react-native-share';
+import styles from '../themes/LoginScreen.styles';
 
 export default function LoginScreen({ navigation }) {
   const [users, setUsers] = useState([]);
-  const [password, setPassword] = useState('');
   const [selectedUser, setSelectedUser] = useState(null); // Armazenando o usuário selecionado
   const { setUser } = useUser();
 
@@ -27,12 +28,8 @@ export default function LoginScreen({ navigation }) {
 
   // Função para fazer login
   const handleLogin = (user) => {
-    if (user && user.password === password) { // Verificando se a senha do usuário corresponde ao valor inserido
-      setUser(user); // Armazenando o usuário no contexto
-      navigation.replace('MainTabs');
-    } else {
-      Alert.alert('Erro', 'Usuário ou senha inválidos.');
-    }
+    setUser(user); // Armazenando o usuário no contexto
+    navigation.replace('MainTabs');
   };
 
   // Função para confirmar a exclusão de usuário
@@ -65,38 +62,45 @@ export default function LoginScreen({ navigation }) {
     }
   };
 
+  // Função para compartilhar medicamentos de um usuário
+  const handleShareMedicamentos = async (user) => {
+    try {
+      const medicamentos = await MedicationRepository.getMedicationsByUserId(user.id);
+      const alergias = user.alergias || [];
+      let mensagem = '';
+      if (alergias.length > 0) {
+        mensagem += `Declaro, para os devidos fins, que sou alérgico(a) aos seguintes medicamentos ou substâncias: ${alergias.join(', ')}.\n\n`;
+      } else {
+        mensagem += 'Declaro, para os devidos fins, que não possuo alergias conhecidas.\n\n';
+      }
+      if (medicamentos.length > 0) {
+        mensagem += 'Minha lista de medicamentos em uso atualmente é:\n';
+        mensagem += medicamentos.map(med => `- ${med.nome}: Dose de ${med.mgPorDose} mg, quantidade de ${Math.ceil(med.mgPorDose / med.mgPorComprimido)} comprimido(s) por vez. Horários: ${Array.isArray(med.horarios) ? med.horarios.join(', ') : med.horarios}.`).join('\n');
+      } else {
+        mensagem += 'No momento, não faço uso de nenhum medicamento.';
+      }
+      await Share.open({
+        message: `Informações de saúde do usuário ${user.username}:\n\n${mensagem}`,
+        title: `Informações de saúde de ${user.username}`,
+        failOnCancel: false,
+      });
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível compartilhar a lista.');
+      console.error('[LoginScreen] Erro ao compartilhar:', error);
+    }
+  };
+
   // Função para renderizar cada item de usuário
   const renderItem = ({ item }) => (
-    <View style={styles.userButton}>
-      <TouchableOpacity style={styles.userInfo} onPress={() => setSelectedUser(item)}>
-        <Icon name="user-circle" size={24} color="#fff" style={styles.icon} />
-        <Text style={styles.username}>{item.username}</Text>
+    <View style={styles.userRow}>
+      <TouchableOpacity style={styles.userButton} onPress={() => handleLogin(item)}>
+        <Text style={styles.userName}>{item.username}</Text>
       </TouchableOpacity>
-
-      <TouchableOpacity onPress={() => confirmDelete(item.id)}>
-        <Icon name="trash" size={22} color="#cc0000" />
+      <TouchableOpacity style={styles.shareButton} onPress={() => handleShareMedicamentos(item)}>
+        <Icon name="share-alt" size={20} color="#fff" />
       </TouchableOpacity>
     </View>
   );
-
-  // Exibe o campo de senha após selecionar um usuário
-  const renderPasswordInput = () => {
-    if (!selectedUser) return null; // Se nenhum usuário for selecionado, não exibe nada
-
-    return (
-      <View style={styles.passwordContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="Senha"
-          placeholderTextColor="#ccc"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-        />
-        <Button title="Login" onPress={() => handleLogin(selectedUser)} />
-      </View>
-    );
-  };
 
   return (
     <View style={styles.container}>
@@ -109,66 +113,9 @@ export default function LoginScreen({ navigation }) {
         contentContainerStyle={styles.list}
       />
 
-      {/* Renderiza o campo de senha apenas se um usuário for selecionado */}
-      {renderPasswordInput()}
-
       <View style={styles.buttonSpacing}>
         <Button title="Cadastrar novo usuário" onPress={() => navigation.navigate('Register')} />
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    padding: 20,
-    backgroundColor: '#121212', // Tema escuro
-  },
-  title: {
-    fontSize: 24,
-    textAlign: 'center',
-    marginBottom: 20,
-    color: '#fff', // Texto claro
-  },
-  list: {
-    paddingBottom: 20,
-  },
-  userButton: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#333', // Fundo escuro para cada item
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-  },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  icon: {
-    marginRight: 10,
-  },
-  username: {
-    fontSize: 18,
-    color: '#fff', // Texto claro
-  },
-  input: {
-    height: 40,
-    borderColor: '#ccc',
-    borderWidth: 1,
-    borderRadius: 5,
-    marginBottom: 20,
-    paddingHorizontal: 10,
-    color: '#fff', // Texto da senha em branco
-    backgroundColor: '#333', // Fundo escuro do campo de senha
-  },
-  passwordContainer: {
-    marginTop: 20,
-  },
-  buttonSpacing: {
-    marginTop: 20, // Adicionando espaço entre o botão de login e o de cadastro
-  },
-});

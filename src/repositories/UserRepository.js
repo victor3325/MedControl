@@ -9,19 +9,19 @@ const UserRepository = {
         `CREATE TABLE IF NOT EXISTS users (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           username TEXT UNIQUE NOT NULL,
-          password TEXT NOT NULL
+          alergias TEXT
         );`
       );
     });
   },
 
-  createUser: (username, password) => {
-    console.log('Tentando criar usuário:', username, password);
+  createUser: (username, alergias = []) => {
+    console.log('Tentando criar usuário:', username, alergias);
     return new Promise((resolve) => {
       db.transaction((tx) => {
         tx.executeSql(
-          'INSERT INTO users (username, password) VALUES (?, ?);',
-          [username, password],
+          'INSERT INTO users (username, alergias) VALUES (?, ?);',
+          [username, JSON.stringify(alergias)],
           (_, result) => {
             console.log('Usuário criado com sucesso:', result);
             resolve(result.insertId);
@@ -43,7 +43,9 @@ const UserRepository = {
           [id],
           (_, { rows }) => {
             if (rows.length > 0) {
-              resolve(rows.item(0)); // ← FORMA SEGURA
+              const user = rows.item(0);
+              user.alergias = user.alergias ? JSON.parse(user.alergias) : [];
+              resolve(user);
             } else {
               resolve(null);
             }
@@ -67,8 +69,9 @@ const UserRepository = {
           [username],
           (_, { rows }) => {
             if (rows.length > 0) {
-              console.log('Usuário encontrado:', rows.item(0));
-              resolve(rows.item(0));
+              const user = rows.item(0);
+              user.alergias = user.alergias ? JSON.parse(user.alergias) : [];
+              resolve(user);
             } else {
               resolve(null);
             }
@@ -91,7 +94,9 @@ const UserRepository = {
           (_, { rows }) => {
             const users = [];
             for (let i = 0; i < rows.length; i++) {
-              users.push(rows.item(i));
+              const user = rows.item(i);
+              user.alergias = user.alergias ? JSON.parse(user.alergias) : [];
+              users.push(user);
             }
             resolve(users);
           },
@@ -104,12 +109,12 @@ const UserRepository = {
     });
   },
 
-  updateUser: (id, username, password) => {
+  updateUser: (id, username, alergias = []) => {
     return new Promise((resolve) => {
       db.transaction((tx) => {
         tx.executeSql(
-          'UPDATE users SET username = ?, password = ? WHERE id = ?;',
-          [username, password, id],
+          'UPDATE users SET username = ?, alergias = ? WHERE id = ?;',
+          [username, JSON.stringify(alergias), id],
           (_, result) => resolve(result.rowsAffected > 0),
           (_, error) => {
             console.error("Erro ao atualizar usuário:", error);

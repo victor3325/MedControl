@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   Button,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   Dimensions,
   ScrollView,
   KeyboardAvoidingView,
@@ -17,6 +16,8 @@ import MedicationRepository from '../repositories/MedicationRepository';
 import { TextInputMask } from 'react-native-masked-text';
 import NotificationService from '../services/NotificationService';
 import { useUser } from '../context/UserContext';
+import DateUtils from '../utils/DateUtils';
+import AlertUtils from '../utils/AlertUtils';
 
 const { width, height } = Dimensions.get('window');
 
@@ -32,45 +33,48 @@ const CadastrarMedicamentoScreen = () => {
   const [estoque, setEstoque] = useState('');
   const [horarios, setHorarios] = useState(['']);
 
+  const scrollViewRef = useRef(null);
+  const horarioRefs = useRef([]);
+
   useEffect(() => {
-    console.log('[DEBUG] user context:', user);
     if (user && user.id) {
       setUserId(user.id);
-      console.log('[DEBUG] userId set to:', user.id);
     } else {
       console.warn('[WARN] Usuário não encontrado no contexto.');
     }
   }, [user]);
 
   const handleHorarioChange = (text, index) => {
-    console.log(`[DEBUG] handleHorarioChange - index: ${index}, value: ${text}`);
     const novosHorarios = [...horarios];
     novosHorarios[index] = text;
     setHorarios(novosHorarios);
   };
 
   const adicionarHorario = () => {
-    console.log('[DEBUG] adicionarHorario chamado');
     setHorarios([...horarios, '']);
+    setTimeout(() => {
+      const novaRef = horarioRefs.current[horarios.length];
+      if (novaRef && typeof novaRef.focus === 'function') {
+        novaRef.focus();
+      }
+    }, 300);
   };
 
   const removerHorario = (index) => {
-    console.log('[DEBUG] removerHorario - index:', index);
     const novosHorarios = horarios.filter((_, i) => i !== index);
     setHorarios(novosHorarios);
   };
 
   const handleSalvar = async () => {
-    console.log('[DEBUG] handleSalvar chamado');
-    console.log('[DEBUG] userId:', userId);
-
+    console.log('[CadastroMedicamentoScreen] Iniciando cadastro...');
     if (!userId) {
-      Alert.alert('Erro', 'Usuário não encontrado.');
+      console.log('[CadastroMedicamentoScreen] Usuário não encontrado. userId:', userId);
+      AlertUtils.showError('Usuário não encontrado.', 'Erro');
       return;
     }
 
-    // Adicionando a data de cadastro no formato dd/mm/yyyy
-    const dataCadastro = new Date().toLocaleDateString('pt-BR'); // Formato dd/mm/yyyy
+    const dataCadastro = new Date().toISOString();
+    console.log('[CadastroMedicamentoScreen] dataCadastro:', dataCadastro);
 
     const newMedication = {
       nome,
@@ -80,32 +84,35 @@ const CadastrarMedicamentoScreen = () => {
       estoque,
       horarios,
       userId,
-      dataCadastro, // Salvando a data de cadastro no formato desejado
+      dataCadastro,
     };
-
-    console.log('[DEBUG] newMedication:', newMedication);
+    console.log('[CadastroMedicamentoScreen] newMedication:', newMedication);
 
     try {
       const insertedId = await MedicationRepository.createMedication(newMedication);
-      console.log('[DEBUG] insertedId:', insertedId);
+      console.log('[CadastroMedicamentoScreen] insertedId:', insertedId);
 
       if (insertedId) {
-        await NotificationService.scheduleMedicationNotifications({
-          id: insertedId,
-          nome,
-          horarios,
-        });
-        console.log('[DEBUG] Notificações agendadas com sucesso');
-
-        Alert.alert('Sucesso', 'Medicamento cadastrado com sucesso!', [
-          { text: 'OK', onPress: () => navigation.goBack() },
-        ]);
+        try {
+          console.log('[CadastroMedicamentoScreen] Agendando notificações...');
+          await NotificationService.scheduleMedicationNotifications({
+            id: insertedId,
+            nome,
+            horarios,
+          });
+          console.log('[CadastroMedicamentoScreen] Notificações agendadas com sucesso!');
+          AlertUtils.showSuccess('Medicamento cadastrado com sucesso!', 'Sucesso');
+        } catch (err) {
+          console.error('[CadastroMedicamentoScreen] Erro ao agendar notificações:', err);
+          AlertUtils.showError('Horário inválido para notificação. Corrija antes de salvar.', 'Erro');
+        }
       } else {
-        Alert.alert('Erro', 'Erro ao salvar o medicamento.');
+        console.error('[CadastroMedicamentoScreen] Erro ao salvar o medicamento.');
+        AlertUtils.showError('Erro ao salvar o medicamento.', 'Erro');
       }
     } catch (error) {
-      console.error('[ERRO] Erro ao cadastrar:', error);
-      Alert.alert('Erro', 'Erro inesperado ao cadastrar o medicamento.');
+      console.error('[CadastroMedicamentoScreen] Erro inesperado ao cadastrar:', error);
+      AlertUtils.showError('Erro inesperado ao cadastrar o medicamento.', 'Erro');
     }
   };
 
@@ -114,14 +121,15 @@ const CadastrarMedicamentoScreen = () => {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
-      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        ref={scrollViewRef}
+        contentContainerStyle={styles.scrollContainer}
+        keyboardShouldPersistTaps="handled"
+      >
         <TextInput
           style={styles.input}
           value={nome}
-          onChangeText={(text) => {
-            console.log('[DEBUG] nome:', text);
-            setNome(text);
-          }}
+          onChangeText={setNome}
           placeholder="Nome do medicamento"
           placeholderTextColor="#bbb"
         />
@@ -131,10 +139,7 @@ const CadastrarMedicamentoScreen = () => {
           type={'only-numbers'}
           options={{ mask: '99' }}
           value={mgPorComprimido}
-          onChangeText={(text) => {
-            console.log('[DEBUG] mgPorComprimido:', text);
-            setMgPorComprimido(text);
-          }}
+          onChangeText={setMgPorComprimido}
           keyboardType="numeric"
           placeholder="Mg por comprimido"
           placeholderTextColor="#bbb"
@@ -145,10 +150,7 @@ const CadastrarMedicamentoScreen = () => {
           type={'only-numbers'}
           options={{ mask: '99' }}
           value={mgPorDose}
-          onChangeText={(text) => {
-            console.log('[DEBUG] mgPorDose:', text);
-            setMgPorDose(text);
-          }}
+          onChangeText={setMgPorDose}
           keyboardType="numeric"
           placeholder="Mg por dose"
           placeholderTextColor="#bbb"
@@ -159,10 +161,7 @@ const CadastrarMedicamentoScreen = () => {
           type={'only-numbers'}
           options={{ mask: '99' }}
           value={dosesPorDia}
-          onChangeText={(text) => {
-            console.log('[DEBUG] dosesPorDia:', text);
-            setDosesPorDia(text);
-          }}
+          onChangeText={setDosesPorDia}
           keyboardType="numeric"
           placeholder="Doses por dia"
           placeholderTextColor="#bbb"
@@ -173,10 +172,7 @@ const CadastrarMedicamentoScreen = () => {
           type={'only-numbers'}
           options={{ mask: '9999' }}
           value={estoque}
-          onChangeText={(text) => {
-            console.log('[DEBUG] estoque:', text);
-            setEstoque(text);
-          }}
+          onChangeText={setEstoque}
           keyboardType="numeric"
           placeholder="Estoque"
           placeholderTextColor="#bbb"
@@ -191,7 +187,9 @@ const CadastrarMedicamentoScreen = () => {
               options={{ mask: '99:99' }}
               value={hora}
               placeholder="HH:MM"
+              placeholderTextColor="#bbb"
               onChangeText={(text) => handleHorarioChange(text, index)}
+              refInput={(ref) => (horarioRefs.current[index] = ref)} // <--- ref corrigido
             />
             <TouchableOpacity onPress={() => removerHorario(index)} style={styles.removerButton}>
               <Text style={styles.removerButtonText}>✕</Text>

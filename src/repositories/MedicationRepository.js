@@ -1,15 +1,8 @@
 import { openDatabase } from 'react-native-sqlite-storage';
 import dayjs from 'dayjs';
+import DateUtils from '../utils/DateUtils';
 
 const db = openDatabase({ name: 'medcontrol.db' });
-
-const formatDateToISO = (dateStr) => {
-  if (typeof dateStr === 'string' && dateStr.includes('/')) {
-    const [dia, mes, ano] = dateStr.split('/');
-    return `${ano}-${mes}-${dia}`;
-  }
-  return new Date(dateStr).toISOString().split('T')[0];
-};
 
 const MedicationRepository = {
   createTable: () => {
@@ -40,8 +33,9 @@ const MedicationRepository = {
   createMedication: (medication) => {
     console.log('📦 Inserindo medicamento:', medication);
     return new Promise(resolve => {
-      const dataCadastro = formatDateToISO(medication.dataCadastro || new Date());
-
+      const dataCadastro = medication.dataCadastro
+        ? new Date(medication.dataCadastro).toISOString()
+        : new Date().toISOString();
       db.transaction(tx => {
         tx.executeSql(
           `INSERT INTO medications
@@ -82,7 +76,8 @@ const MedicationRepository = {
             const meds = [];
             for (let i = 0; i < rows.length; i++) {
               const item = rows.item(i);
-              item.horarios = JSON.parse(item.horarios);
+              item.horarios = DateUtils.safeParseHorarios(item.horarios);
+              item.dataCadastro = ensureISODate(item.dataCadastro);
               meds.push(item);
             }
             console.log(`✅ ${meds.length} medicamentos encontrados.`);
@@ -109,7 +104,8 @@ const MedicationRepository = {
             const meds = [];
             for (let i = 0; i < rows.length; i++) {
               const item = rows.item(i);
-              item.horarios = JSON.parse(item.horarios);
+              item.horarios = DateUtils.safeParseHorarios(item.horarios);
+              item.dataCadastro = ensureISODate(item.dataCadastro);
               meds.push(item);
             }
             console.log(`✅ ${meds.length} medicamentos encontrados.`);
@@ -126,7 +122,7 @@ const MedicationRepository = {
   },
 
   deleteUserIdNull: () => {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       db.transaction(tx => {
         tx.executeSql(
           'DELETE FROM medications WHERE userId IS NULL;',
@@ -137,7 +133,7 @@ const MedicationRepository = {
           },
           (_, error) => {
             console.error('Erro ao deletar medicamentos com userId null:', error);
-            resolve(false);
+            reject(error);
             return true;
           }
         );
@@ -147,7 +143,7 @@ const MedicationRepository = {
 
   deleteMedication: (id) => {
     console.log('🗑️ Deletando medicamento com ID:', id);
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       db.transaction(tx => {
         tx.executeSql(
           'DELETE FROM medications WHERE id = ?;',
@@ -158,7 +154,7 @@ const MedicationRepository = {
           },
           (_, error) => {
             console.error('❌ Erro ao deletar medicamento:', error);
-            resolve(false);
+            reject(error);
             return true;
           }
         );
@@ -188,11 +184,11 @@ const MedicationRepository = {
                const med = rows.item(i);
                let horariosArray = [];
                try {
-                 horariosArray = JSON.parse(med.horarios);
+                 horariosArray = DateUtils.safeParseHorarios(med.horarios);
                } catch {
                  horariosArray = [];
                }
-
+               med.dataCadastro = ensureISODate(med.dataCadastro);
                // calcula próximos horários futuros
                const proximosHorarios = horariosArray
                  .map(horarioStr => {
@@ -244,8 +240,9 @@ const MedicationRepository = {
   updateMedication: (med) => {
     console.log('✏️ Atualizando medicamento:', med);
     return new Promise(resolve => {
-      const dataCadastro = formatDateToISO(med.dataCadastro || new Date());
-
+      const dataCadastro = med.dataCadastro
+        ? new Date(med.dataCadastro).toISOString()
+        : new Date().toISOString();
       db.transaction(tx => {
         tx.executeSql(
           `UPDATE medications SET
@@ -274,6 +271,53 @@ const MedicationRepository = {
       });
     });
   },
+
+  // Exporta todos os medicamentos como array de objetos
+  exportarTodosMedicamentos: async () => {
+    return await MedicationRepository.getAll();
+  },
+
+  // Deleta a tabela de medicamentos
+  deletarTabelaMedicamentos: () => {
+    return new Promise((resolve, reject) => {
+      db.transaction(tx => {
+        tx.executeSql(
+          'DROP TABLE IF EXISTS medications;',
+          [],
+          () => {
+            console.log('Tabela de medicamentos deletada com sucesso.');
+            resolve(true);
+          },
+          (_, error) => {
+            console.error('Erro ao deletar tabela de medicamentos:', error);
+            reject(error);
+            return true;
+          }
+        );
+      });
+    });
+  },
+
+  // Cria a tabela de medicamentos
+  criarTabelaMedicamentos: () => {
+    MedicationRepository.createTable();
+  },
+
+  // Insere vários medicamentos em lote
+  inserirMedicamentosEmLote: async (medicamentos) => {
+    for (const med of medicamentos) {
+      await MedicationRepository.createMedication(med);
+    }
+    console.log('Todos os medicamentos foram inseridos na nova tabela.');
+  },
 };
+
+function ensureISODate(dateStr) {
+  if (!dateStr) return new Date().toISOString();
+  // Se já for ISO, retorna igual
+  if (dateStr.length > 10) return dateStr;
+  // Se vier como YYYY-MM-DD, converte para ISO
+  return new Date(dateStr + 'T00:00:00.000Z').toISOString();
+}
 
 export default MedicationRepository;
