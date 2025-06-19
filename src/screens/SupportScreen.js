@@ -14,6 +14,7 @@ export default function SupportScreen() {
   const [enviando, setEnviando] = useState(false);
   const [enviado, setEnviado] = useState(false);
   const [telefone, setTelefone] = useState('');
+  const [infoDispositivo, setInfoDispositivo] = useState('');
 
   function formatarTelefone(valor) {
     // Remove tudo que não for número
@@ -43,9 +44,11 @@ export default function SupportScreen() {
     let marca = DeviceInfo.getBrand() || 'Desconhecida';
     let modelo = DeviceInfo.getModel() || 'Desconhecido';
     let versao = DeviceInfo.getSystemVersion() || 'Desconhecida';
+    const info = `Dispositivo: ${marca} ${modelo}\nAndroid: ${versao}`;
+    setInfoDispositivo(info);
     // Apenas WhatsApp
     const msg = encodeURIComponent(
-      `Olá, preciso de suporte.\n\nDescrição: ${descricao}\nTelefone para retorno: ${telefone}\nProtocolo: ${protocoloGerado}\n\n---\nDispositivo: ${marca} ${modelo}\nAndroid: ${versao}`
+      `Olá, preciso de suporte.\n\nDescrição: ${descricao}\nTelefone para retorno: ${telefone}\nProtocolo: ${protocoloGerado}\n\n---\n${info}`
     );
     Linking.openURL(`https://wa.me/5547996995432?text=${msg}`);
     setEnviando(false);
@@ -68,10 +71,6 @@ export default function SupportScreen() {
       </TouchableOpacity>
       <Text style={styles.label}>Responsável:</Text>
       <Text style={styles.text}>Falar com Victor</Text>
-      <Text style={styles.label}>Documentação:</Text>
-      <TouchableOpacity onPress={() => Linking.openURL('https://medcontrol.com/ajuda')}>
-        <Text style={styles.link}>https://medcontrol.com/ajuda</Text>
-      </TouchableOpacity>
       <Text style={styles.text}>
         Nosso time está disponível de segunda a sexta, das 8h às 18h.
       </Text>
@@ -106,7 +105,8 @@ export default function SupportScreen() {
         {enviado && protocolo && (
           <View style={styles.protocoloBox}>
             <Text style={styles.protocoloText}>Ticket enviado! Protocolo: <Text style={{fontWeight:'bold'}}>{protocolo}</Text></Text>
-            <Text style={styles.text}>Você receberá um retorno em breve por e-mail ou WhatsApp.</Text>
+            <Text style={styles.text}>{infoDispositivo}</Text>
+            <Text style={styles.text}>Você receberá um retorno em breve por WhatsApp.</Text>
           </View>
         )}
       </View>
