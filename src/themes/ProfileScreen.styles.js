@@ -23,6 +23,43 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.text,
     fontSize: AppTheme.fontSizes.text,
   },
+  saveButton: {
+    backgroundColor: AppTheme.colors.button,
+    paddingVertical: AppTheme.spacing.md,
+    borderRadius: AppTheme.borderRadius.md,
+    alignItems: 'center',
+    marginTop: AppTheme.spacing.lg,
+    marginBottom: AppTheme.spacing.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  saveButtonText: {
+    color: AppTheme.colors.buttonText,
+    fontWeight: 'bold',
+    fontSize: AppTheme.fontSizes.text,
+    letterSpacing: 1,
+  },
+  deleteButton: {
+    backgroundColor: AppTheme.colors.delete,
+    paddingVertical: AppTheme.spacing.md,
+    borderRadius: AppTheme.borderRadius.md,
+    alignItems: 'center',
+    marginTop: AppTheme.spacing.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  deleteButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: AppTheme.fontSizes.text,
+    letterSpacing: 1,
+  },
 });
 
 export default styles; 
