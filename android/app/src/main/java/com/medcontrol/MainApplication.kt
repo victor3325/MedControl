@@ -11,7 +11,6 @@ import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.soloader.OpenSourceMergedSoMapping
 import com.facebook.soloader.SoLoader
-import io.invertase.notifee.NotifeePackage // Importação correta
 import io.invertase.firebase.messaging.ReactNativeFirebaseMessagingPackage;
 import com.medcontrol.BatteryOptimizationPackage
 
@@ -21,7 +20,6 @@ class MainApplication : Application(), ReactApplication {
         object : DefaultReactNativeHost(this) {
             override fun getPackages(): List<ReactPackage> {
                 val packages = PackageList(this).packages.toMutableList()
-                packages.add(NotifeePackage()) // Adiciona Notifee corretamente
                 packages.add(ReactNativeFirebaseMessagingPackage())
                 packages.add(BatteryOptimizationPackage())
                 return packages

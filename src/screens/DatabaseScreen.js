@@ -7,24 +7,39 @@ import {
   ScrollView,
   Dimensions,
   TouchableOpacity,
+  Alert,
+  Button,
 } from 'react-native';
 import MedicationRepository from '../repositories/MedicationRepository';
+import UserRepository from '../repositories/UserRepository';
 import { useUser } from '../context/UserContext';
+import DateUtils from '../utils/DateUtils';
+import { useFocusEffect } from '@react-navigation/native';
+import styles from '../themes/DatabaseScreen.styles';
 
 const { width } = Dimensions.get('window');
 
 export default function DatabaseScreen() {
   const [medicamentos, setMedicamentos] = useState([]);
+  const [usuarios, setUsuarios] = useState([]);
   const { user } = useUser();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const data = await MedicationRepository.getAll();
-      setMedicamentos(data);
-    };
+  const fetchData = async () => {
+    const data = await MedicationRepository.getAll();
+    setMedicamentos(data);
+    const users = await UserRepository.getAllUsers();
+    setUsuarios(users);
+  };
 
+  useEffect(() => {
     fetchData();
   }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchData();
+    }, [])
+  );
 
   const deleteMedication = async (id) => {
     try {
@@ -62,14 +77,10 @@ export default function DatabaseScreen() {
       <Text style={styles.tableCell}>{item.dosesPorDia}</Text>
       <Text style={styles.tableCell}>{item.estoque}</Text>
       <Text style={styles.tableCell}>
-        {item.dataCadastro ? formatDate(item.dataCadastro) : 'Sem data'}
+        {item.dataCadastro ? DateUtils.formatDateBR(item.dataCadastro) : 'Sem data'}
       </Text>
       <Text style={styles.tableCell}>
-        {Array.isArray(item.horarios)
-          ? item.horarios.join(', ')
-          : typeof item.horarios === 'string'
-          ? item.horarios
-          : ''}
+        {DateUtils.safeParseHorarios(item.horarios).join(', ')}
       </Text>
       <View style={styles.tableCell}>
         {item.userId === null && (
@@ -84,12 +95,68 @@ export default function DatabaseScreen() {
     </View>
   );
 
+  // Função para exportar, resetar e restaurar medicamentos
+  const handleExportResetRestore = async () => {
+    try {
+      Alert.alert('Atenção', 'Este processo irá recriar a tabela de medicamentos. Deseja continuar?', [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'OK',
+          onPress: async () => {
+            // 1. Exporta
+            const meds = await MedicationRepository.exportarTodosMedicamentos();
+            // 2. Deleta tabela
+            await MedicationRepository.deletarTabelaMedicamentos();
+            // 3. Recria tabela
+            await MedicationRepository.criarTabelaMedicamentos();
+            // 4. Restaura
+            await MedicationRepository.inserirMedicamentosEmLote(meds);
+            fetchData();
+            Alert.alert('Sucesso', 'Medicamentos exportados, tabela recriada e dados restaurados!');
+          }
+        }
+      ]);
+    } catch (error) {
+      Alert.alert('Erro', 'Falha ao executar processo: ' + error.message);
+    }
+  };
+
   return (
     <View style={styles.container}>
-      <Text style={styles.header}>Medicamentos Salvos</Text>
+      <Text style={styles.header}>Central de Dados</Text>
       {user && user.id && (
         <Text style={styles.userInfo}>ID do Usuário: {user.id}</Text>
       )}
+
+      {/* Tabela de usuários e alergias */}
+      <Text style={[styles.header, {marginTop: 10}]}>Usuários e Alergias</Text>
+      <ScrollView horizontal>
+        <View>
+          <View style={styles.tableHeader}>
+            <Text style={styles.tableHeaderText}>ID</Text>
+            <Text style={styles.tableHeaderText}>Nome de Usuário</Text>
+            <Text style={styles.tableHeaderText}>Alergias</Text>
+          </View>
+          <ScrollView style={styles.scrollableBody}>
+            {usuarios.map((u) => (
+              <View key={u.id} style={styles.tableRow}>
+                <Text style={styles.tableCell}>{u.id}</Text>
+                <Text style={styles.tableCell}>{u.username}</Text>
+                <Text style={styles.tableCell}>{(() => {
+                  if (!u.alergias) return 'Nenhuma';
+                  if (Array.isArray(u.alergias)) return u.alergias.length > 0 ? u.alergias.join(', ') : 'Nenhuma';
+                  try {
+                    const arr = JSON.parse(u.alergias);
+                    return Array.isArray(arr) && arr.length > 0 ? arr.join(', ') : 'Nenhuma';
+                  } catch {
+                    return 'Nenhuma';
+                  }
+                })()}</Text>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </ScrollView>
 
       <ScrollView horizontal>
         <View>
@@ -116,67 +183,8 @@ export default function DatabaseScreen() {
           </ScrollView>
         </View>
       </ScrollView>
+
+      <Button title="Exportar, Resetar e Restaurar Medicamentos" onPress={handleExportResetRestore} color="#1976D2" />
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#121212',
-    padding: 16,
-  },
-  header: {
-    fontSize: 18,
-    color: 'white',
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  userInfo: {
-    fontSize: 14,
-    color: 'white',
-    marginBottom: 10,
-  },
-  tableHeader: {
-    flexDirection: 'row',
-    backgroundColor: '#333',
-    paddingVertical: 8,
-  },
-  tableHeaderText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    textAlign: 'center',
-    minWidth: 90,
-    fontSize: 12,
-    paddingHorizontal: 4,
-  },
-  tableRow: {
-    flexDirection: 'row',
-    backgroundColor: '#1e1e1e',
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#444',
-  },
-  tableCell: {
-    color: '#fff',
-    textAlign: 'center',
-    minWidth: 90,
-    fontSize: 12,
-    paddingHorizontal: 4,
-  },
-  deleteButton: {
-    backgroundColor: '#ff3333',
-    paddingVertical: 3,
-    paddingHorizontal: 6,
-    borderRadius: 5,
-    alignSelf: 'center',
-  },
-  deleteButtonText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-  scrollableBody: {
-    maxHeight: 400,
-  },
-});

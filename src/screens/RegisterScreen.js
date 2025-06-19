@@ -1,13 +1,25 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Button, StyleSheet, Alert } from 'react-native';
+import { View, Text, TextInput, Button, StyleSheet, Alert, TouchableOpacity } from 'react-native';
 import UserRepository from '../repositories/UserRepository';
 import { useUser } from '../context/UserContext';
 
 export default function RegisterScreen({ navigation }) {
   const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
   const { setUser } = useUser();
   const [isLoading, setIsLoading] = useState(false);
+  const [alergiaInput, setAlergiaInput] = useState('');
+  const [alergias, setAlergias] = useState([]);
+
+  const handleAddAlergia = () => {
+    if (alergiaInput.trim() && !alergias.includes(alergiaInput.trim())) {
+      setAlergias([...alergias, alergiaInput.trim()]);
+      setAlergiaInput('');
+    }
+  };
+
+  const handleRemoveAlergia = (alergia) => {
+    setAlergias(alergias.filter(a => a !== alergia));
+  };
 
   const handleRegister = async () => {
     setIsLoading(true);
@@ -15,9 +27,9 @@ export default function RegisterScreen({ navigation }) {
     try {
       console.log('🚀 Clicou no botão de cadastrar');
 
-      if (!username || !password) {
-        console.log('⚠️ Campos obrigatórios não preenchidos');
-        throw new Error('Preencha todos os campos.');
+      if (!username) {
+        console.log('⚠️ Campo obrigatório não preenchido');
+        throw new Error('Preencha o nome de usuário.');
       }
 
       console.log('🔍 Verificando se o usuário já existe...');
@@ -28,14 +40,14 @@ export default function RegisterScreen({ navigation }) {
       }
 
       console.log('✔️ Criando o novo usuário...');
-      const userId = await UserRepository.createUser(username, password);
+      const userId = await UserRepository.createUser(username, alergias);
       if (userId) {
         console.log('🎉 Usuário criado com sucesso');
         const user = await UserRepository.getUserById(userId);
         setUser(user);
         Alert.alert('Cadastro realizado!', `Bem-vindo, ${username}!`);
         setUsername('');
-        setPassword('');
+        setAlergias([]);
         navigation.replace('MainTabs');
       } else {
         console.log('❌ Erro ao criar o usuário');
@@ -63,15 +75,31 @@ export default function RegisterScreen({ navigation }) {
         placeholderTextColor="#888"
       />
 
-      <TextInput
-        style={styles.input}
-        placeholder="Senha"
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-        editable={!isLoading}
-        placeholderTextColor="#888"
-      />
+      {/* Campo de alergias */}
+      <Text style={{ color: '#fff', marginBottom: 5, marginTop: 10 }}>Sou alérgico(a) a:</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+        <TextInput
+          style={[styles.input, { flex: 1, marginBottom: 0 }]}
+          placeholder="Digite uma alergia"
+          value={alergiaInput}
+          onChangeText={setAlergiaInput}
+          editable={!isLoading}
+          placeholderTextColor="#888"
+        />
+        <Button title="Adicionar" onPress={handleAddAlergia} disabled={!alergiaInput.trim() || isLoading} />
+      </View>
+      {alergias.length > 0 && (
+        <View style={{ marginBottom: 10 }}>
+          {alergias.map((alergia, idx) => (
+            <View key={alergia + idx} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+              <Text style={{ color: '#fff', flex: 1 }}>• {alergia}</Text>
+              <TouchableOpacity onPress={() => handleRemoveAlergia(alergia)}>
+                <Text style={{ color: '#E53935', marginLeft: 8 }}>Remover</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
 
       <Button
         title={isLoading ? 'Cadastrando...' : 'Cadastrar'}

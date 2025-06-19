@@ -1,76 +1,29 @@
 import React, { useState } from 'react';
-import { View, Button, StyleSheet, Alert, TextInput } from 'react-native';
-import notifee, { TriggerType } from '@notifee/react-native'; // Importação correta
+import { View, Button, StyleSheet, TextInput } from 'react-native';
+import { getApp } from '@react-native-firebase/app';
+import { getMessaging } from '@react-native-firebase/messaging';
+import AlertUtils from '../utils/AlertUtils';
 
 const TestNotificationScreen = () => {
   const [time, setTime] = useState('');
 
   const scheduleNotification = async () => {
-    console.log('Iniciando agendamento de notificação');
-
     if (!time) {
-      console.log('Erro: Horário não fornecido');
-      Alert.alert('Erro', 'Por favor, insira um horário válido.');
+      AlertUtils.showError('Por favor, insira um horário válido.', 'Erro');
       return;
     }
-
     const [hours, minutes] = time.split(':').map(num => parseInt(num, 10));
-    console.log(`Horário informado: ${hours}:${minutes}`);
-
-    if (isNaN(hours) || isNaN(minutes)) {
-      console.log('Erro: Horário inválido');
-      Alert.alert('Erro', 'Por favor, insira um horário válido no formato HH:mm.');
+    if (
+      isNaN(hours) ||
+      isNaN(minutes) ||
+      hours < 0 || hours > 23 ||
+      minutes < 0 || minutes > 59
+    ) {
+      AlertUtils.showError('Por favor, insira um horário válido no formato HH:mm (00:00–23:59).', 'Erro');
       return;
     }
-
-    const notificationTime = new Date();
-    notificationTime.setHours(hours);
-    notificationTime.setMinutes(minutes);
-    notificationTime.setSeconds(0);
-    notificationTime.setMilliseconds(0);
-
-    if (notificationTime.getTime() <= Date.now()) {
-      console.log('Horário já passou hoje. Ajustando para amanhã...');
-      notificationTime.setDate(notificationTime.getDate() + 1);
-    }
-
-    const timestamp = notificationTime.getTime();
-    console.log(`Notificação será agendada para: ${notificationTime.toString()}`);
-    console.log('Timestamp da notificação:', timestamp);
-
-    if (timestamp < Date.now()) {
-      console.log('Erro: O horário agendado é no passado');
-      Alert.alert('Erro', 'O horário agendado deve ser no futuro.');
-      return;
-    } else {
-      console.log('Horário de notificação está no futuro. Agendando...');
-    }
-
-    console.log('Tentando agendar a notificação...');
-
-    try {
-      await notifee.createTriggerNotification(
-        {
-          title: 'Notificação Agendada',
-          body: `Sua notificação está agendada para ${time}.`,
-          android: {
-            channelId: 'default',
-            smallIcon: 'ic_launcher',
-            sound: 'default',
-          },
-        },
-        {
-          type: TriggerType.TIMESTAMP,
-          timestamp,
-        }
-      );
-
-      console.log('Notificação agendada com sucesso');
-      Alert.alert('Notificação agendada!', `Notificação agendada para ${time}.`);
-    } catch (error) {
-      console.log(`Erro ao agendar a notificação: ${error.message}`);
-      Alert.alert('Erro ao agendar', `Erro: ${error.message}`);
-    }
+    // FCM não agenda notificações locais, apenas push. Simule envio ou use outra lib se necessário.
+    AlertUtils.showSuccess('Notificação seria agendada para ' + time + ' usando FCM.', 'Simulação');
   };
 
   // Função de máscara para entrada no formato HH:mm

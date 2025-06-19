@@ -3,6 +3,9 @@ import { View, Text, FlatList, StyleSheet, Button, Alert } from 'react-native';
 import { useUser } from '../context/UserContext';
 import MedicationRepository from '../repositories/MedicationRepository';
 import { useIsFocused } from '@react-navigation/native';
+import MedicationUtils from '../utils/MedicationUtils';
+import AlertUtils from '../utils/AlertUtils';
+import Share from 'react-native-share';
 
 const ListaMedicamentosScreen = ({ navigation }) => {
   const { user } = useUser();
@@ -13,7 +16,7 @@ const ListaMedicamentosScreen = ({ navigation }) => {
     const carregarDados = async () => {
       if (user) {
         const dados = await MedicationRepository.getMedicationsByUserId(user.id);
-        const atualizados = atualizarEstoqueComDias(dados);
+        const atualizados = MedicationUtils.atualizarEstoqueComDias(dados);
         setMedicamentos(atualizados);
 
         // Filtra medicamentos com estoque baixo (diasRestantes <= 10)
@@ -22,11 +25,8 @@ const ListaMedicamentosScreen = ({ navigation }) => {
         );
 
         if (estoqueBaixoMedicamentos.length > 0) {
-          const nomes = estoqueBaixoMedicamentos.map((med) => med.nome).join(', ');
-          Alert.alert(
-            'Atenção',
-            `Os seguintes medicamentos estão com estoque baixo:\n${nomes}`
-          );
+          const nomes = estoqueBaixoMedicamentos.map((med) => `🔴 ${med.nome}`).join('\n');
+          AlertUtils.showError(`Os seguintes medicamentos estão com estoque baixo:\n${nomes}`, 'Atenção');
         }
       }
     };
@@ -36,74 +36,49 @@ const ListaMedicamentosScreen = ({ navigation }) => {
     }
   }, [isFocused, user]);
 
-  const atualizarEstoqueComDias = (lista) => {
-    return lista.map((med) => {
-      const mgPorComprimido = parseFloat(med.mgPorComprimido) || 0;
-      const mgPorDose = parseFloat(med.mgPorDose) || 0;
-      const dosesPorDia = parseInt(med.dosesPorDia, 10) || 0;
-      const estoque = parseFloat(med.estoque) || 0;
-
-      const dataCadastro = new Date(med.dataCadastro);
-      if (isNaN(dataCadastro.getTime())) {
-        console.error('Data de cadastro inválida:', med.dataCadastro, med);
-        return {
-          ...med,
-          estoqueAtual: '0.00',
-          diasRestantes: '0.00',
-          diasPassados: 0,
-          dataCadastroFormatada: 'Data inválida'
-        };
-      }
-
-      const hoje = new Date();
-      const umDiaEmMs = 1000 * 60 * 60 * 24;
-      const diasPassados = Math.floor((hoje - dataCadastro) / umDiaEmMs);
-      const dosesConsumidas = diasPassados * dosesPorDia;
-
-      const fatorConversao = mgPorComprimido > 0 && mgPorDose > 0
-        ? mgPorComprimido / mgPorDose
-        : 0;
-
-      const comprimidosConsumidos = fatorConversao > 0
-        ? dosesConsumidas / fatorConversao
-        : 0;
-
-      const estoqueAtual = Math.max(estoque - comprimidosConsumidos, 0);
-
-      const comprimidosPorDia = fatorConversao > 0
-        ? dosesPorDia / fatorConversao
-        : 0;
-
-      const diasRestantes = comprimidosPorDia > 0
-        ? estoqueAtual / comprimidosPorDia
-        : 0;
-
-      return {
-        ...med,
-        estoqueAtual: estoqueAtual.toFixed(2),
-        diasRestantes: diasRestantes.toFixed(2),
-        diasPassados: diasPassados,
-        dataCadastroFormatada: dataCadastro.toLocaleDateString('pt-BR'),
-      };
-    });
+  const handleExcluir = (id) => {
+    AlertUtils.showConfirm(
+      'Deseja excluir este medicamento?',
+      async () => {
+        const sucesso = await MedicationRepository.deleteMedication(id);
+        if (sucesso) {
+          const atualizados = await MedicationRepository.getMedicationsByUserId(user.id);
+          setMedicamentos(MedicationUtils.atualizarEstoqueComDias(atualizados));
+        } else {
+          AlertUtils.showError('Não foi possível excluir o medicamento.', 'Erro');
+        }
+      },
+      null,
+      'Confirmação'
+    );
   };
 
-  const handleExcluir = (id) => {
-    Alert.alert('Confirmação', 'Deseja excluir este medicamento?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Sim',
-        onPress: async () => {
-          const sucesso = await MedicationRepository.deleteMedication(id);
-          if (sucesso) {
-            const atualizados = await MedicationRepository.getMedicationsByUserId(user.id);
-            setMedicamentos(atualizarEstoqueComDias(atualizados));
-          } else {
-            Alert.alert('Erro', 'Não foi possível excluir o medicamento.');
-          }
-        },
-      },
-    ]);
+  // Função para compartilhar medicamentos do usuário logado
+  const handleShareMedicamentos = async () => {
+    try {
+      const medicamentos = await MedicationRepository.getMedicationsByUserId(user.id);
+      const alergias = user.alergias || [];
+      let mensagem = '';
+      if (alergias.length > 0) {
+        mensagem += `Declaro, para os devidos fins, que sou alérgico(a) aos seguintes medicamentos ou substâncias: ${alergias.join(', ')}.\n\n`;
+      } else {
+        mensagem += 'Declaro, para os devidos fins, que não possuo alergias conhecidas.\n\n';
+      }
+      if (medicamentos.length > 0) {
+        mensagem += 'Minha lista de medicamentos em uso atualmente é:\n';
+        mensagem += medicamentos.map(med => `- ${med.nome}: Dose de ${med.mgPorDose} mg, quantidade de ${Math.ceil(med.mgPorDose / med.mgPorComprimido)} comprimido(s) por vez. Horários: ${Array.isArray(med.horarios) ? med.horarios.join(', ') : med.horarios}.`).join('\n');
+      } else {
+        mensagem += 'No momento, não faço uso de nenhum medicamento.';
+      }
+      await Share.open({
+        message: `Minhas informações de saúde:\n\n${mensagem}`,
+        title: 'Minhas Informações de Saúde',
+        failOnCancel: false,
+      });
+    } catch (error) {
+      AlertUtils.showError('Não foi possível compartilhar a lista.', 'Erro');
+      console.error('[ListaMedicamentosScreen] Erro ao compartilhar:', error);
+    }
   };
 
   const renderItem = ({ item }) => {
@@ -137,6 +112,9 @@ const ListaMedicamentosScreen = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginBottom: 10 }}>
+        <Button title="Compartilhar Lista" onPress={handleShareMedicamentos} color="#1976D2" />
+      </View>
       <FlatList
         data={medicamentos}
         keyExtractor={(item) => item.id.toString()}

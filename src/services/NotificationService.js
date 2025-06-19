@@ -1,107 +1,83 @@
-import notifee, { TimestampTrigger, TriggerType } from '@notifee/react-native';
+import notifee, { TimestampTrigger, TriggerType, RepeatFrequency } from '@notifee/react-native';
 
 const NotificationService = {
   async cancelNotificationsByMedicationId(medicationId) {
-    console.log(`🔄 Cancelando notificações para o medicamento ID: ${medicationId}`);
-
-    const allTriggers = await notifee.getTriggerNotifications();
-    console.log(`📋 Total de notificações agendadas: ${allTriggers.length}`);
-
-    for (const trigger of allTriggers) {
-      console.log(`🔍 Verificando notificação ID: ${trigger.notification?.id}`);
-      console.log(`📦 Dados da notificação:`, trigger.notification?.data);
-
-      if (trigger.notification?.data?.medicationId === String(medicationId)) {
-        console.log(`❌ Cancelando notificação ID: ${trigger.notification?.id}`);
-        await notifee.cancelNotification(trigger.notification.id);
-      } else {
-        console.log(`✅ Notificação ID: ${trigger.notification?.id} não pertence ao medicamento ${medicationId}`);
-      }
+    console.log('[NotificationService] Cancelando notificações para medicationId:', medicationId);
+    const triggers = await notifee.getTriggerNotifications();
+    const idsToCancel = triggers
+      .filter(n => n.notification.data?.medicationId === String(medicationId))
+      .map(n => n.notification.id);
+    for (const id of idsToCancel) {
+      await notifee.cancelNotification(id);
+      console.log(`[NotificationService] Notificação cancelada: ${id}`);
     }
-
-    console.log(`🚫 Todas notificações relacionadas ao medicamento ${medicationId} foram canceladas.`);
+    console.log(`[NotificationService] Canceladas notificações do medicamento ${medicationId}:`, idsToCancel);
   },
 
   async scheduleMedicationNotifications({ id, nome, horarios }) {
-    console.log("📅 Iniciando agendamento de notificações...");
-    console.log("🆔 Medicamento ID:", id);
-    console.log("💊 Nome:", nome);
-    console.log("⏰ Horários recebidos:", horarios);
-
-    try {
-      for (let i = 0; i < horarios.length; i++) {
-        const horario = horarios[i];
-        console.log(`🔁 [${i}] Processando horário: ${horario}`);
-
-        const [hour, minute] = horario.split(':').map(Number);
-        if (isNaN(hour) || isNaN(minute)) {
-          console.warn(`⛔ Horário inválido detectado: ${horario}`);
-          continue;
-        }
-
-        const triggerDate = getNextTriggerDate(hour, minute);
-        console.log(`⏳ Horário convertido para data: ${triggerDate.toString()}`);
-
-        const trigger: TimestampTrigger = {
-          type: TriggerType.TIMESTAMP,
-          timestamp: triggerDate.getTime(),
-          repeatFrequency: 1,
-          alarmManager: true,
-        };
-
-        const notificationId = `${id}-${i}`;
-
-        console.log(`📨 Agendando notificação: ID = ${notificationId}, Hora = ${hour}:${minute}`);
-
-        await notifee.createTriggerNotification(
-          {
-            id: notificationId,
-            title: 'Hora do medicamento 💊',
-            body: `Tome ${nome} às ${horario}`,
-            android: {
-              channelId: 'default',
-              sound: 'default',
-              pressAction: {
-                id: 'default',
-              },
-            },
-            data: {
-              medicationId: String(id),
-              horario,
-              nome,
-            },
-          },
-          trigger
-        );
-
-        console.log(`✅ Notificação ${notificationId} agendada para ${triggerDate.toLocaleString()}`);
+    console.log('[NotificationService] Agendando notificações locais...', { id, nome, horarios });
+    let algumHorarioInvalido = false;
+    for (let i = 0; i < horarios.length; i++) {
+      const horario = horarios[i];
+      const [hour, minute] = horario.split(':').map(Number);
+      if (
+        isNaN(hour) ||
+        isNaN(minute) ||
+        hour < 0 || hour > 23 ||
+        minute < 0 || minute > 59
+      ) {
+        algumHorarioInvalido = true;
+        console.warn(`[NotificationService] Horário inválido detectado: ${horario}`);
+        continue;
       }
-
-      console.log("🎉 Todas notificações foram agendadas com sucesso!");
-    } catch (error) {
-      console.error("❌ Erro inesperado ao agendar notificações:", error);
-      throw error;
+      const now = new Date();
+      let triggerDate = new Date(now);
+      triggerDate.setHours(hour, minute, 0, 0);
+      if (triggerDate < now) {
+        triggerDate.setDate(triggerDate.getDate() + 1);
+      }
+      const trigger = {
+        type: TriggerType.TIMESTAMP,
+        timestamp: triggerDate.getTime(),
+        repeatFrequency: RepeatFrequency.DAILY,
+      };
+      console.log('[NotificationService] Criando triggerNotification:', {
+        id: `med_${id}_${hour}_${minute}`,
+        title: 'Hora do medicamento',
+        body: `Lembrete para tomar: ${nome} (${horario})`,
+        trigger,
+      });
+      await notifee.createTriggerNotification(
+        {
+          id: `med_${id}_${hour}_${minute}`,
+          title: 'Hora do medicamento',
+          body: `Lembrete para tomar: ${nome} (${horario})`,
+          android: {
+            channelId: 'medcontrol_reminders',
+            smallIcon: 'ic_launcher',
+            pressAction: { id: 'default' },
+          },
+          data: { medicationId: String(id) },
+        },
+        trigger
+      );
+      console.log(`[NotificationService] Notificação agendada para ${horario}`);
     }
+    if (algumHorarioInvalido) {
+      throw new Error('Um ou mais horários são inválidos. Corrija antes de agendar.');
+    }
+    console.log('[NotificationService] Todas notificações foram agendadas!');
+  },
+
+  async createChannelIfNeeded() {
+    console.log('[NotificationService] Criando canal de notificações (se necessário)...');
+    await notifee.createChannel({
+      id: 'medcontrol_reminders',
+      name: 'Lembretes de Medicação',
+      importance: 4,
+    });
+    console.log('[NotificationService] Canal criado ou já existente.');
   },
 };
-
-function getNextTriggerDate(hour, minute) {
-  const now = new Date();
-  const trigger = new Date();
-  trigger.setHours(Number(hour), Number(minute), 0, 0);
-
-  console.log('🧪 Agora:', now.toString(), '|', now.toLocaleTimeString());
-  console.log('📌 Horário alvo:', trigger.toString(), '|', trigger.toLocaleTimeString());
-
-  if (trigger <= now) {
-    console.log('⚠️ Horário já passou. Agendando para o próximo dia.');
-    trigger.setDate(trigger.getDate() + 1);
-  } else {
-    console.log('✅ Agendando para hoje.');
-  }
-
-  console.log('📅 Próximo horário de notificação:', trigger.toString(), '|', trigger.toLocaleTimeString());
-  return trigger;
-}
 
 export default NotificationService;
