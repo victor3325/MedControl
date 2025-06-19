@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Linking, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Linking, TouchableOpacity, TextInput, Alert, Platform } from 'react-native';
 import AppTheme from '../themes/AppTheme';
+import DeviceInfo from 'react-native-device-info';
 
 function gerarProtocolo() {
   const now = new Date();
@@ -38,8 +39,14 @@ export default function SupportScreen() {
     setEnviando(true);
     const protocoloGerado = gerarProtocolo();
     setProtocolo(protocoloGerado);
+    // Coleta informações do dispositivo
+    let marca = DeviceInfo.getBrand() || 'Desconhecida';
+    let modelo = DeviceInfo.getModel() || 'Desconhecido';
+    let versao = DeviceInfo.getSystemVersion() || 'Desconhecida';
     // Apenas WhatsApp
-    const msg = encodeURIComponent(`Olá, preciso de suporte.\n\nDescrição: ${descricao}\nTelefone para retorno: ${telefone}\nProtocolo: ${protocoloGerado}`);
+    const msg = encodeURIComponent(
+      `Olá, preciso de suporte.\n\nDescrição: ${descricao}\nTelefone para retorno: ${telefone}\nProtocolo: ${protocoloGerado}\n\n---\nDispositivo: ${marca} ${modelo}\nAndroid: ${versao}`
+    );
     Linking.openURL(`https://wa.me/5547996995432?text=${msg}`);
     setEnviando(false);
     setEnviado(true);
