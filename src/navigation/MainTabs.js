@@ -6,6 +6,7 @@ import ProfileScreen from '../screens/ProfileScreen';
 import DatabaseScreen from '../screens/DatabaseScreen'; // Import da nova tela
 import Icon from 'react-native-vector-icons/Ionicons';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import SupportScreen from '../screens/SupportScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -30,6 +31,8 @@ export default function MainTabs({ navigation }) {
             iconName = focused ? 'person' : 'person-outline';
           } else if (route.name === 'Banco de Dados') {
             iconName = focused ? 'server' : 'server-outline';
+          } else if (route.name === 'Suporte') {
+            iconName = focused ? 'help-circle' : 'help-circle-outline';
           }
 
           return <Icon name={iconName} size={size} color={color} />;
@@ -74,6 +77,20 @@ export default function MainTabs({ navigation }) {
             backgroundColor: '#121212',
           },
           headerTintColor: '#fff',
+        }}
+      />
+
+      <Tab.Screen
+        name="Suporte"
+        component={SupportScreen}
+        options={{
+          headerStyle: {
+            backgroundColor: '#121212',
+          },
+          headerTintColor: '#fff',
+          tabBarIcon: ({ color, size }) => (
+            <Icon name="help-circle-outline" size={size} color={color} />
+          ),
         }}
       />
     </Tab.Navigator>

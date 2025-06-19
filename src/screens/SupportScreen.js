@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Linking, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Linking, TouchableOpacity, TextInput, Alert } from 'react-native';
 import AppTheme from '../themes/AppTheme';
 
 function gerarProtocolo() {
@@ -14,8 +14,27 @@ export default function SupportScreen() {
   const [enviado, setEnviado] = useState(false);
   const [telefone, setTelefone] = useState('');
 
+  function formatarTelefone(valor) {
+    // Remove tudo que não for número
+    let num = valor.replace(/\D/g, '');
+    // Limita a 11 dígitos
+    num = num.slice(0, 11);
+    // Formata (99) 99999-9999
+    if (num.length <= 2) return num;
+    if (num.length <= 7) return `(${num.slice(0,2)}) ${num.slice(2)}`;
+    return `(${num.slice(0,2)}) ${num.slice(2,7)}-${num.slice(7)}`;
+  }
+
+  function handleTelefoneChange(valor) {
+    const num = valor.replace(/\D/g, '').slice(0, 11);
+    setTelefone(formatarTelefone(num));
+  }
+
   const handleAbrirTicket = async () => {
-    if (!descricao.trim() || !telefone.trim()) return;
+    if (!descricao.trim() || telefone.replace(/\D/g, '').length !== 11) {
+      Alert.alert('Atenção', 'Preencha todos os campos obrigatórios corretamente. O telefone deve ter 11 dígitos.');
+      return;
+    }
     setEnviando(true);
     const protocoloGerado = gerarProtocolo();
     setProtocolo(protocoloGerado);
@@ -66,14 +85,14 @@ export default function SupportScreen() {
           style={styles.input}
           placeholder="(99) 99999-9999"
           value={telefone}
-          onChangeText={setTelefone}
+          onChangeText={handleTelefoneChange}
           keyboardType="phone-pad"
-          maxLength={20}
+          maxLength={16}
         />
         <TouchableOpacity
           style={[styles.button, enviando && { backgroundColor: '#ccc' }]}
           onPress={handleAbrirTicket}
-          disabled={enviando || !descricao.trim() || !telefone.trim()}
+          disabled={enviando || !descricao.trim() || telefone.replace(/\D/g, '').length !== 11}
         >
           <Text style={styles.buttonText}>{enviando ? 'Enviando...' : 'Enviar Ticket'}</Text>
         </TouchableOpacity>

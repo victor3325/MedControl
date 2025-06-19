@@ -5,6 +5,7 @@ import {
 import { useUser } from '../context/UserContext';
 import UserRepository from '../repositories/UserRepository';
 import styles from '../themes/ProfileScreen.styles';
+import AppTheme from '../themes/AppTheme';
 
 export default function EditProfileScreen({ navigation }) {
   const { user, setUser } = useUser();
@@ -82,9 +83,12 @@ export default function EditProfileScreen({ navigation }) {
         onChangeText={setUsername}
       />
 
-      <Button title="Salvar alterações" onPress={handleUpdate} color="#4CAF50" />
-      <View style={{ height: 10 }} />
-      <Button title="Excluir perfil" onPress={handleDelete} color="#E53935" />
+      <TouchableOpacity style={styles.saveButton} onPress={handleUpdate}>
+        <Text style={styles.saveButtonText}>Salvar alterações</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.deleteButton} onPress={handleDelete}>
+        <Text style={styles.deleteButtonText}>Excluir perfil</Text>
+      </TouchableOpacity>
     </View>
   );
 }
