@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Linking, TouchableOpacity, TextInput, Alert, Platform } from 'react-native';
 import AppTheme from '../themes/AppTheme';
 import DeviceInfo from 'react-native-device-info';
+import axios from 'axios';
 
 function gerarProtocolo() {
   const now = new Date();
@@ -15,6 +16,7 @@ export default function SupportScreen() {
   const [enviado, setEnviado] = useState(false);
   const [telefone, setTelefone] = useState('');
   const [infoDispositivo, setInfoDispositivo] = useState('');
+  const [ticketJira, setTicketJira] = useState(null);
 
   function formatarTelefone(valor) {
     // Remove tudo que não for número
@@ -33,26 +35,68 @@ export default function SupportScreen() {
   }
 
   const handleAbrirTicket = async () => {
+    console.log('--- Botão "Enviar Ticket" pressionado ---');
+    console.log(`Verificando Descrição: "${descricao}"`);
+    console.log(`Verificando Telefone: "${telefone}" (dígitos: ${telefone.replace(/\D/g, '').length})`);
+
     if (!descricao.trim() || telefone.replace(/\D/g, '').length !== 11) {
       Alert.alert('Atenção', 'Preencha todos os campos obrigatórios corretamente. O telefone deve ter 11 dígitos.');
       return;
     }
     setEnviando(true);
-    const protocoloGerado = gerarProtocolo();
-    setProtocolo(protocoloGerado);
+    setEnviado(false);
+    setTicketJira(null);
+    let timeoutId = setTimeout(() => {
+      setEnviando(false);
+      Alert.alert('Erro', 'Tempo de conexão esgotado. Tente novamente mais tarde.');
+    }, 12000); // 12 segundos de segurança
     // Coleta informações do dispositivo
     let marca = DeviceInfo.getBrand() || 'Desconhecida';
     let modelo = DeviceInfo.getModel() || 'Desconhecido';
     let versao = DeviceInfo.getSystemVersion() || 'Desconhecida';
     const info = `Dispositivo: ${marca} ${modelo}\nAndroid: ${versao}`;
     setInfoDispositivo(info);
-    // Apenas WhatsApp
-    const msg = encodeURIComponent(
-      `Olá, preciso de suporte.\n\nDescrição: ${descricao}\nTelefone para retorno: ${telefone}\nProtocolo: ${protocoloGerado}\n\n---\n${info}`
-    );
-    Linking.openURL(`https://wa.me/5547996995432?text=${msg}`);
-    setEnviando(false);
-    setEnviado(true);
+
+    console.log('--- Validação OK. INICIANDO REQUISIÇÃO PARA O BACKEND ---');
+    console.log('URL de destino:', 'https://medcontrol-tickets-vkx-d.vercel.app/api/tickets');
+
+    try {
+      const response = await axios.post('https://medcontrol-tickets-vkx-d.vercel.app/api/tickets', {
+        summary: `Ticket de suporte - ${telefone}`,
+        description: `Descrição: ${descricao}\nTelefone: ${telefone}\nDispositivo: ${marca} ${modelo}, Android ${versao}`
+      }, {
+        timeout: 10000 // 10 segundos
+      });
+      clearTimeout(timeoutId);
+      if (response.data && response.data.jira && response.data.jira.key) {
+        setTicketJira(response.data.jira.key);
+        setEnviado(true);
+      } else {
+        Alert.alert('Erro', 'Não foi possível abrir o ticket no suporte.');
+      }
+    } catch (error) {
+      clearTimeout(timeoutId);
+
+      // Tratamento de Erros Detalhado
+      if (error.code === 'ECONNABORTED') {
+        Alert.alert('Erro de Conexão', 'O tempo de resposta do servidor esgotou. Por favor, tente novamente mais tarde.');
+      } else if (error.response) {
+        // O servidor respondeu com um status de erro (ex: 400, 500)
+        console.error('Erro do Servidor:', JSON.stringify(error.response.data, null, 2));
+        const details = error.response.data.details;
+        if (details && details.errorMessages && details.errorMessages.length > 0) {
+          Alert.alert('Erro ao criar Ticket', `O suporte retornou um erro: ${details.errorMessages.join(', ')}`);
+        } else {
+          Alert.alert('Erro no Servidor', 'Ocorreu um problema ao processar sua solicitação. Tente novamente.');
+        }
+      } else {
+        // Erro de rede ou outro problema
+        console.error('Erro de Rede ou Genérico:', error.message);
+        Alert.alert('Falha na Conexão', 'Não foi possível conectar ao servidor de suporte. Verifique sua internet e tente novamente.');
+      }
+    } finally {
+      setEnviando(false);
+    }
   };
 
   return (
@@ -102,9 +146,9 @@ export default function SupportScreen() {
         >
           <Text style={styles.buttonText}>{enviando ? 'Enviando...' : 'Enviar Ticket'}</Text>
         </TouchableOpacity>
-        {enviado && protocolo && (
+        {enviado && ticketJira && (
           <View style={styles.protocoloBox}>
-            <Text style={styles.protocoloText}>Ticket enviado! Protocolo: <Text style={{fontWeight:'bold'}}>{protocolo}</Text></Text>
+            <Text style={styles.protocoloText}>Ticket registrado no suporte: <Text style={{fontWeight:'bold'}}>{ticketJira}</Text></Text>
             <Text style={styles.text}>{infoDispositivo}</Text>
             <Text style={styles.text}>Você receberá um retorno em breve por WhatsApp.</Text>
           </View>
