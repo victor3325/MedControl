@@ -3,6 +3,7 @@ import { View, Text, FlatList, TouchableOpacity, StyleSheet, Button, Alert, Text
 import { useUser } from '../context/UserContext';
 import UserRepository from '../repositories/UserRepository';
 import MedicationRepository from '../repositories/MedicationRepository'; // Supondo que haja um repositório para medicamentos
+import CalendarService from '../services/CalendarService';
 import Icon from 'react-native-vector-icons/FontAwesome';
 import Share from 'react-native-share';
 import styles from '../themes/LoginScreen.styles';
@@ -27,9 +28,24 @@ export default function LoginScreen({ navigation }) {
   };
 
   // Função para fazer login
-  const handleLogin = (user) => {
+  const handleLogin = async (user) => {
     setUser(user); // Armazenando o usuário no contexto
-    navigation.replace('MainTabs');
+    
+    // Verifica se já foi selecionado um calendário
+    const selectedCalendarId = await CalendarService.getSelectedCalendarId();
+    
+    if (!selectedCalendarId) {
+      // Se não tem calendário selecionado, mostra a tela de seleção
+      navigation.replace('CalendarSelection', {
+        onSelect: () => {
+          // Após selecionar, vai para MainTabs
+          navigation.replace('MainTabs');
+        }
+      });
+    } else {
+      // Se já tem calendário selecionado, vai direto para MainTabs
+      navigation.replace('MainTabs');
+    }
   };
 
   // Função para confirmar a exclusão de usuário

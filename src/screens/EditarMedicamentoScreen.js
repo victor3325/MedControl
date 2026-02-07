@@ -12,13 +12,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import MedicationRepository from '../repositories/MedicationRepository';
 import { TextInputMask } from 'react-native-masked-text';
-import NotificationService from '../services/NotificationService'; // no topo do seu arquivo
+import NotificationService from '../services/NotificationService';
+import CalendarService from '../services/CalendarService';
 import DateUtils from '../utils/DateUtils';
 import AlertUtils from '../utils/AlertUtils';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 // Obtendo as dimensões da tela
 const { width, height } = Dimensions.get('window');
@@ -37,6 +41,8 @@ const EditarMedicamentoScreen = () => {
   const [estoque, setEstoque] = useState(medicamento?.estoque || '');
   const [horarios, setHorarios] = useState(medicamento?.horarios || ['']);
   const [dataCadastro, setDataCadastro] = useState(medicamento?.dataCadastro || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [savingStep, setSavingStep] = useState('');
 
   const handleHorarioChange = (text, index) => {
     console.log(`Alterando horário no índice ${index}: ${text}`);
@@ -57,47 +63,114 @@ const EditarMedicamentoScreen = () => {
   };
 
   const handleSalvar = async () => {
-    console.log('[EditarMedicamentoScreen] Iniciando edição...');
-    let dataCadastroFinal = dataCadastro || medicamento.dataCadastro;
-    if (dataCadastroFinal && dataCadastroFinal.length <= 10) {
-      dataCadastroFinal = new Date(dataCadastroFinal + 'T00:00:00.000Z').toISOString();
-    }
-    console.log('[EditarMedicamentoScreen] dataCadastroFinal:', dataCadastroFinal);
-
-    const updatedMedication = {
-      id: medicamento.id,
-      nome,
-      mgPorComprimido,
-      mgPorDose,
-      dosesPorDia,
-      estoque,
-      horarios,
-      dataCadastro: dataCadastroFinal,
-    };
-    console.log('[EditarMedicamentoScreen] updatedMedication:', updatedMedication);
-
-    const sucesso = await MedicationRepository.updateMedication(updatedMedication);
-    console.log('[EditarMedicamentoScreen] sucesso update:', sucesso);
-
-    if (sucesso) {
-      try {
-        console.log('[EditarMedicamentoScreen] Cancelando notificações antigas...');
-        await NotificationService.cancelNotificationsByMedicationId(medicamento.id);
-        console.log('[EditarMedicamentoScreen] Agendando novas notificações...');
-        await NotificationService.scheduleMedicationNotifications({
-          id: medicamento.id,
-          nome,
-          horarios,
-        });
-        console.log('[EditarMedicamentoScreen] Notificações agendadas com sucesso!');
-        AlertUtils.showSuccess('Alterações salvas com sucesso!', 'Sucesso');
-      } catch (error) {
-        console.error('[EditarMedicamentoScreen] Erro ao atualizar notificações:', error);
-        AlertUtils.showError('Erro ao atualizar as notificações.', 'Erro');
+    setIsSaving(true);
+    setSavingStep('Preparando alterações...');
+    
+    try {
+      console.log('[EditarMedicamentoScreen] Iniciando edição...');
+      let dataCadastroFinal = dataCadastro || medicamento.dataCadastro;
+      if (dataCadastroFinal && dataCadastroFinal.length <= 10) {
+        dataCadastroFinal = new Date(dataCadastroFinal + 'T00:00:00.000Z').toISOString();
       }
-    } else {
-      console.error('[EditarMedicamentoScreen] Erro ao salvar as alterações.');
-      AlertUtils.showError('Erro ao salvar as alterações.', 'Erro');
+      console.log('[EditarMedicamentoScreen] dataCadastroFinal:', dataCadastroFinal);
+
+      // Buscar IDs dos eventos antigos antes de atualizar
+      const oldEventIds = medicamento.calendarEventIds || [];
+
+      const updatedMedication = {
+        id: medicamento.id,
+        nome,
+        mgPorComprimido,
+        mgPorDose,
+        dosesPorDia,
+        estoque,
+        horarios,
+        dataCadastro: dataCadastroFinal,
+      };
+      console.log('[EditarMedicamentoScreen] updatedMedication:', updatedMedication);
+
+      setSavingStep('Salvando alterações no banco de dados...');
+      const sucesso = await MedicationRepository.updateMedication(updatedMedication);
+      console.log('[EditarMedicamentoScreen] sucesso update:', sucesso);
+
+      if (sucesso) {
+        setSavingStep('Alterações salvas no banco de dados');
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        try {
+          setSavingStep('Cancelando notificações antigas...');
+          console.log('[EditarMedicamentoScreen] Cancelando notificações antigas...');
+          await NotificationService.cancelNotificationsByMedicationId(medicamento.id);
+          setSavingStep('Notificações antigas canceladas');
+          await new Promise(resolve => setTimeout(resolve, 300));
+
+          setSavingStep(`Agendando ${horarios.length} nova(s) notificação(ões)...`);
+          console.log('[EditarMedicamentoScreen] Agendando novas notificações...');
+          await NotificationService.scheduleMedicationNotifications({
+            id: medicamento.id,
+            nome,
+            horarios,
+          });
+          setSavingStep('Notificações agendadas com sucesso');
+          await new Promise(resolve => setTimeout(resolve, 300));
+          console.log('[EditarMedicamentoScreen] Notificações agendadas com sucesso!');
+
+          // Atualizar eventos do calendário: remover antigos e criar novos (não bloqueia se falhar)
+          try {
+            setSavingStep(`Removendo ${oldEventIds.length} evento(s) antigo(s) do calendário...`);
+            console.log('[EditarMedicamentoScreen] Atualizando eventos do calendário...');
+            const newEventIds = await CalendarService.updateMedicationEvents(
+              { nome, mgPorDose },
+              oldEventIds,
+              horarios
+            );
+            
+            if (newEventIds && newEventIds.length > 0) {
+              setSavingStep(`Criando ${newEventIds.length} novo(s) evento(s) no calendário...`);
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
+            
+            // Atualizar medicamento com os novos IDs dos eventos
+            if (newEventIds && (newEventIds.length > 0 || oldEventIds.length > 0)) {
+              try {
+                setSavingStep('Salvando IDs dos eventos no banco de dados...');
+                updatedMedication.calendarEventIds = newEventIds || [];
+                await MedicationRepository.updateMedication(updatedMedication);
+                setSavingStep('Eventos do calendário atualizados');
+                await new Promise(resolve => setTimeout(resolve, 300));
+                console.log('[EditarMedicamentoScreen] Eventos do calendário atualizados:', newEventIds.length);
+              } catch (updateError) {
+                console.error('[EditarMedicamentoScreen] Erro ao salvar IDs dos eventos:', updateError);
+                setSavingStep('Aviso: IDs dos eventos não puderam ser salvos');
+                // Não bloqueia a edição se falhar ao salvar os IDs
+              }
+            } else {
+              setSavingStep('Eventos do calendário atualizados');
+            }
+          } catch (calendarError) {
+            console.error('[EditarMedicamentoScreen] Erro ao atualizar eventos do calendário:', calendarError);
+            setSavingStep('Aviso: alguns eventos do calendário não puderam ser atualizados');
+            // Não bloqueia a edição se falhar ao atualizar eventos no calendário
+          }
+
+          setSavingStep('Concluído!');
+          await new Promise(resolve => setTimeout(resolve, 500));
+          AlertUtils.showSuccess('Alterações salvas com sucesso!', 'Sucesso');
+          navigation.goBack();
+        } catch (error) {
+          console.error('[EditarMedicamentoScreen] Erro ao atualizar notificações:', error);
+          AlertUtils.showError('Erro ao atualizar as notificações.', 'Erro');
+        }
+      } else {
+        console.error('[EditarMedicamentoScreen] Erro ao salvar as alterações.');
+        AlertUtils.showError('Erro ao salvar as alterações.', 'Erro');
+      }
+    } catch (error) {
+      console.error('[EditarMedicamentoScreen] Erro geral ao salvar:', error);
+      AlertUtils.showError('Ocorreu um erro ao salvar as alterações.', 'Erro');
+    } finally {
+      setIsSaving(false);
+      setSavingStep('');
     }
   };
 
@@ -204,6 +277,24 @@ const EditarMedicamentoScreen = () => {
           <Button title="Salvar alterações" onPress={handleSalvar} />
         </View>
       </ScrollView>
+
+      {/* Modal de carregamento durante salvamento */}
+      <Modal
+        visible={isSaving}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {}} // Não permite fechar durante o salvamento
+      >
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#4CAF50" />
+            <Icon name="content-save" size={32} color="#4CAF50" style={styles.saveIcon} />
+            <Text style={styles.loadingTitle}>Salvando Alterações</Text>
+            <Text style={styles.loadingStep}>{savingStep}</Text>
+            <Text style={styles.loadingSubtext}>Por favor, aguarde...</Text>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -273,6 +364,51 @@ const styles = StyleSheet.create({
   buttonContainer: {
     marginTop: 10,
     marginBottom: 10,
+  },
+  loadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingContainer: {
+    backgroundColor: '#1F1F1F',
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    minWidth: 280,
+    borderWidth: 1,
+    borderColor: '#333',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  saveIcon: {
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  loadingTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  loadingStep: {
+    fontSize: 14,
+    color: '#4CAF50',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+    fontWeight: '500',
+  },
+  loadingSubtext: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 8,
   },
 });
 

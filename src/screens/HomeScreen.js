@@ -8,17 +8,21 @@ import {
   TouchableOpacity,
   Button,
   TextInput,
+  Modal,
+  Alert,
+  Dimensions,
 } from 'react-native';
 
-import Share from 'react-native-share';  // <--- Import do react-native-share
-import Icon from 'react-native-vector-icons/MaterialCommunityIcons'; // import do ícone
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useUser } from '../context/UserContext';
 import MedicationRepository from '../repositories/MedicationRepository';
+import CalendarService from '../services/CalendarService';
 import { useFocusEffect } from '@react-navigation/native';
 import DateUtils from '../utils/DateUtils';
 import MedicationUtils from '../utils/MedicationUtils';
 import AlertUtils from '../utils/AlertUtils';
 import UserRepository from '../repositories/UserRepository';
+import AppTheme from '../themes/AppTheme';
 import styles from '../themes/HomeScreen.styles';
 
 const HomeScreen = ({ navigation }) => {
@@ -27,6 +31,8 @@ const HomeScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [alergiaInput, setAlergiaInput] = useState('');
   const [alergias, setAlergias] = useState(user?.alergias || []);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncStep, setSyncStep] = useState('');
 
   // Atualiza alergias do contexto se usuário mudar
   React.useEffect(() => {
@@ -53,6 +59,105 @@ const HomeScreen = ({ navigation }) => {
       await UserRepository.updateUser(user.id, user.username, novasAlergias);
       setUser({ ...user, alergias: novasAlergias });
     }
+  };
+
+  const handleSyncCalendar = async () => {
+    Alert.alert(
+      'Sincronizar Calendário',
+      'Isso irá:\n1. Buscar e remover eventos órfãos (que não estão no banco)\n2. Remover eventos antigos\n3. Recriar eventos para os medicamentos existentes\n\nDeseja continuar?',
+      [
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+        },
+        {
+          text: 'Sincronizar',
+          onPress: async () => {
+            setIsSyncing(true);
+            setSyncStep('Preparando sincronização...');
+
+            try {
+              if (!user?.id) {
+                AlertUtils.showError('Usuário não encontrado.', 'Erro');
+                setIsSyncing(false);
+                return;
+              }
+
+              // Busca todos os medicamentos do usuário
+              setSyncStep('Buscando medicamentos no banco de dados...');
+              const medications = await MedicationRepository.getMedicationsByUserId(user.id);
+              
+              if (medications.length === 0) {
+                setSyncStep('Nenhum medicamento encontrado');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                AlertUtils.showError('Nenhum medicamento encontrado para sincronizar.', 'Aviso');
+                setIsSyncing(false);
+                return;
+              }
+
+              // Primeiro: busca e remove eventos órfãos
+              setSyncStep('Buscando eventos órfãos no calendário...');
+              const orphanResult = await CalendarService.findAndRemoveOrphanEvents(
+                medications,
+                (step) => setSyncStep(step)
+              );
+
+              let orphanRemoved = 0;
+              if (orphanResult.success) {
+                orphanRemoved = orphanResult.removed || 0;
+                if (orphanRemoved > 0) {
+                  setSyncStep(`${orphanRemoved} evento(s) órfão(s) removido(s)`);
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                } else {
+                  setSyncStep('Nenhum evento órfão encontrado');
+                  await new Promise(resolve => setTimeout(resolve, 300));
+                }
+              } else {
+                console.warn('[HomeScreen] Erro ao remover eventos órfãos:', orphanResult.error);
+                setSyncStep('Aviso: não foi possível buscar eventos órfãos');
+                await new Promise(resolve => setTimeout(resolve, 300));
+              }
+
+              // Depois: sincroniza (remove eventos antigos e recria)
+              setSyncStep('Sincronizando eventos...');
+              const syncResult = await CalendarService.syncAllCalendarEvents(
+                medications,
+                (step) => setSyncStep(step)
+              );
+
+              if (syncResult.success) {
+                setSyncStep('Concluído!');
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                let message = `Sincronização concluída!\n\n`;
+                if (orphanRemoved > 0) {
+                  message += `• ${orphanRemoved} evento(s) órfão(s) removido(s)\n`;
+                }
+                message += `• ${syncResult.removed} evento(s) antigo(s) removido(s)\n`;
+                message += `• ${syncResult.created} evento(s) criado(s)`;
+                
+                if (syncResult.errors && syncResult.errors.length > 0) {
+                  message += `\n\nAvisos:\n${syncResult.errors.join('\n')}`;
+                }
+
+                AlertUtils.showSuccess(message, 'Sincronização Concluída');
+              } else {
+                AlertUtils.showError(
+                  syncResult.error || 'Erro ao sincronizar eventos do calendário.',
+                  'Erro'
+                );
+              }
+            } catch (error) {
+              console.error('[HomeScreen] Erro ao sincronizar calendário:', error);
+              AlertUtils.showError('Erro inesperado ao sincronizar calendário.', 'Erro');
+            } finally {
+              setIsSyncing(false);
+              setSyncStep('');
+            }
+          },
+        },
+      ]
+    );
   };
 
   useFocusEffect(
@@ -109,24 +214,30 @@ const HomeScreen = ({ navigation }) => {
       </View>
 
       {/* Campo de alergias */}
-      <Text style={{ color: '#fff', marginBottom: 5, marginTop: 10 }}>Sou alérgico(a) a:</Text>
-      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }}>
+      <Text style={styles.allergyTitle}>Sou alérgico(a) a:</Text>
+      <View style={styles.allergyInputContainer}>
         <TextInput
-          style={[styles.input, { flex: 1, marginBottom: 0 }]}
+          style={[styles.input, styles.allergyInput]}
           placeholder="Digite uma alergia"
           value={alergiaInput}
           onChangeText={setAlergiaInput}
-          placeholderTextColor="#888"
+          placeholderTextColor={AppTheme.colors.textMuted}
         />
         <Button title="Adicionar" onPress={handleAddAlergia} disabled={!alergiaInput.trim()} />
       </View>
       {alergias.length > 0 && (
-        <View style={{ marginBottom: 10 }}>
+        <View style={styles.allergiesList}>
           {alergias.map((alergia, idx) => (
-            <View key={alergia + idx} style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-              <Text style={{ color: '#fff', flex: 1 }}>• {alergia}</Text>
-              <TouchableOpacity onPress={() => handleRemoveAlergia(alergia)}>
-                <Text style={{ color: '#E53935', marginLeft: 8 }}>Remover</Text>
+            <View key={alergia + idx} style={styles.allergyChip}>
+              <Text style={styles.allergyChipText} numberOfLines={1} ellipsizeMode="tail">
+                {alergia.trim()}
+              </Text>
+              <TouchableOpacity 
+                onPress={() => handleRemoveAlergia(alergia)}
+                style={styles.allergyChipRemove}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Icon name="close" size={16} color={AppTheme.colors.error} />
               </TouchableOpacity>
             </View>
           ))}
@@ -177,8 +288,85 @@ const HomeScreen = ({ navigation }) => {
           <Text style={styles.navButtonText}>Listar Medicamentos</Text>
         </TouchableOpacity>
       </View>
+
+      <View style={styles.buttonContainer}>
+        <TouchableOpacity
+          onPress={handleSyncCalendar}
+          style={[styles.navButton, { flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }]}
+          activeOpacity={0.7}
+        >
+          <Icon name="calendar-sync" size={20} color="#fff" style={{ marginRight: 8 }} />
+          <Text style={styles.navButtonText}>Sincronizar Calendário</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Modal de carregamento durante sincronização */}
+      <Modal
+        visible={isSyncing}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {}} // Não permite fechar durante a sincronização
+      >
+        <View style={syncStyles.loadingOverlay}>
+          <View style={syncStyles.loadingContainer}>
+            <ActivityIndicator size="large" color="#4CAF50" />
+            <Icon name="calendar-sync" size={32} color="#4CAF50" style={syncStyles.syncIcon} />
+            <Text style={syncStyles.loadingTitle}>Sincronizando Calendário</Text>
+            <Text style={syncStyles.loadingStep}>{syncStep}</Text>
+            <Text style={syncStyles.loadingSubtext}>Por favor, aguarde...</Text>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
+
+const syncStyles = StyleSheet.create({
+  loadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingContainer: {
+    backgroundColor: '#1F1F1F',
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    minWidth: 280,
+    borderWidth: 1,
+    borderColor: '#333',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  syncIcon: {
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  loadingTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  loadingStep: {
+    fontSize: 14,
+    color: '#4CAF50',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+    fontWeight: '500',
+  },
+  loadingSubtext: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+});
 
 export default HomeScreen;

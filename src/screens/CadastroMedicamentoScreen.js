@@ -10,14 +10,18 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import MedicationRepository from '../repositories/MedicationRepository';
 import { TextInputMask } from 'react-native-masked-text';
 import NotificationService from '../services/NotificationService';
+import CalendarService from '../services/CalendarService';
 import { useUser } from '../context/UserContext';
 import DateUtils from '../utils/DateUtils';
 import AlertUtils from '../utils/AlertUtils';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 const { width, height } = Dimensions.get('window');
 
@@ -32,6 +36,8 @@ const CadastrarMedicamentoScreen = () => {
   const [dosesPorDia, setDosesPorDia] = useState('');
   const [estoque, setEstoque] = useState('');
   const [horarios, setHorarios] = useState(['']);
+  const [isSaving, setIsSaving] = useState(false);
+  const [savingStep, setSavingStep] = useState('');
 
   const scrollViewRef = useRef(null);
   const horarioRefs = useRef([]);
@@ -66,45 +72,99 @@ const CadastrarMedicamentoScreen = () => {
   };
 
   const handleSalvar = async () => {
-    console.log('[CadastroMedicamentoScreen] Iniciando cadastro...');
-    if (!userId) {
-      console.log('[CadastroMedicamentoScreen] Usuário não encontrado. userId:', userId);
-      AlertUtils.showError('Usuário não encontrado.', 'Erro');
-      return;
-    }
-
-    const dataCadastro = new Date().toISOString();
-    console.log('[CadastroMedicamentoScreen] dataCadastro:', dataCadastro);
-
-    const newMedication = {
-      nome,
-      mgPorComprimido,
-      mgPorDose,
-      dosesPorDia,
-      estoque,
-      horarios,
-      userId,
-      dataCadastro,
-    };
-    console.log('[CadastroMedicamentoScreen] newMedication:', newMedication);
-
+    setIsSaving(true);
+    setSavingStep('Preparando cadastro...');
+    
     try {
+      console.log('[CadastroMedicamentoScreen] Iniciando cadastro...');
+      if (!userId) {
+        console.log('[CadastroMedicamentoScreen] Usuário não encontrado. userId:', userId);
+        AlertUtils.showError('Usuário não encontrado.', 'Erro');
+        setIsSaving(false);
+        setSavingStep('');
+        return;
+      }
+
+      const dataCadastro = new Date().toISOString();
+      console.log('[CadastroMedicamentoScreen] dataCadastro:', dataCadastro);
+
+      const newMedication = {
+        nome,
+        mgPorComprimido,
+        mgPorDose,
+        dosesPorDia,
+        estoque,
+        horarios,
+        userId,
+        dataCadastro,
+      };
+      console.log('[CadastroMedicamentoScreen] newMedication:', newMedication);
+
+      setSavingStep('Salvando medicamento no banco de dados...');
       const insertedId = await MedicationRepository.createMedication(newMedication);
       console.log('[CadastroMedicamentoScreen] insertedId:', insertedId);
 
       if (insertedId) {
+        setSavingStep('Medicamento salvo no banco de dados');
+        await new Promise(resolve => setTimeout(resolve, 500));
+
         try {
+          setSavingStep(`Agendando ${horarios.length} notificação(ões)...`);
           console.log('[CadastroMedicamentoScreen] Agendando notificações...');
           await NotificationService.scheduleMedicationNotifications({
             id: insertedId,
             nome,
             horarios,
           });
+          setSavingStep('Notificações agendadas com sucesso');
+          await new Promise(resolve => setTimeout(resolve, 300));
           console.log('[CadastroMedicamentoScreen] Notificações agendadas com sucesso!');
+
+          // Criar eventos no calendário
+          try {
+            setSavingStep(`Criando eventos no calendário para ${horarios.length} horário(s)...`);
+            console.log('[CadastroMedicamentoScreen] Criando eventos no calendário...');
+            const eventIds = await CalendarService.createMedicationEvents(
+              { nome, mgPorDose },
+              horarios
+            );
+            
+            if (eventIds && eventIds.length > 0) {
+              setSavingStep(`Criados ${eventIds.length} evento(s) no calendário`);
+              await new Promise(resolve => setTimeout(resolve, 500));
+              
+              // Atualizar medicamento com os IDs dos eventos criados
+              setSavingStep('Salvando IDs dos eventos no banco de dados...');
+              const updatedMedication = {
+                ...newMedication,
+                id: insertedId,
+                calendarEventIds: eventIds,
+              };
+              await MedicationRepository.updateMedication(updatedMedication);
+              setSavingStep('IDs dos eventos salvos');
+              await new Promise(resolve => setTimeout(resolve, 300));
+              console.log('[CadastroMedicamentoScreen] Eventos do calendário salvos:', eventIds.length);
+            } else {
+              setSavingStep('Aviso: nenhum evento foi criado no calendário');
+              await new Promise(resolve => setTimeout(resolve, 300));
+            }
+          } catch (calendarError) {
+            console.error('[CadastroMedicamentoScreen] Erro ao criar eventos no calendário:', calendarError);
+            setSavingStep('Aviso: alguns eventos do calendário não puderam ser criados');
+            await new Promise(resolve => setTimeout(resolve, 300));
+            // Não bloqueia o cadastro se falhar ao criar eventos no calendário
+          }
+
+          setSavingStep('Concluído!');
+          await new Promise(resolve => setTimeout(resolve, 500));
           AlertUtils.showSuccess('Medicamento cadastrado com sucesso!', 'Sucesso');
+          navigation.goBack();
         } catch (err) {
           console.error('[CadastroMedicamentoScreen] Erro ao agendar notificações:', err);
-          AlertUtils.showError('Horário inválido para notificação. Corrija antes de salvar.', 'Erro');
+          AlertUtils.showError('Erro ao agendar notificações. O medicamento foi cadastrado, mas as notificações podem não funcionar.', 'Aviso');
+          // Ainda mostra sucesso e volta, pois o medicamento foi salvo
+          AlertUtils.showSuccess('Medicamento cadastrado com sucesso!', 'Sucesso');
+          navigation.goBack();
         }
       } else {
         console.error('[CadastroMedicamentoScreen] Erro ao salvar o medicamento.');
@@ -113,6 +173,9 @@ const CadastrarMedicamentoScreen = () => {
     } catch (error) {
       console.error('[CadastroMedicamentoScreen] Erro inesperado ao cadastrar:', error);
       AlertUtils.showError('Erro inesperado ao cadastrar o medicamento.', 'Erro');
+    } finally {
+      setIsSaving(false);
+      setSavingStep('');
     }
   };
 
@@ -205,6 +268,24 @@ const CadastrarMedicamentoScreen = () => {
           <Button title="Salvar" onPress={handleSalvar} />
         </View>
       </ScrollView>
+
+      {/* Modal de carregamento durante cadastro */}
+      <Modal
+        visible={isSaving}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {}} // Não permite fechar durante o cadastro
+      >
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#4CAF50" />
+            <Icon name="plus-circle" size={32} color="#4CAF50" style={styles.saveIcon} />
+            <Text style={styles.loadingTitle}>Cadastrando Medicamento</Text>
+            <Text style={styles.loadingStep}>{savingStep}</Text>
+            <Text style={styles.loadingSubtext}>Por favor, aguarde...</Text>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 };
@@ -268,6 +349,51 @@ const styles = StyleSheet.create({
   buttonContainer: {
     marginTop: 10,
     marginBottom: 10,
+  },
+  loadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingContainer: {
+    backgroundColor: '#1F1F1F',
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    minWidth: 280,
+    borderWidth: 1,
+    borderColor: '#333',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  saveIcon: {
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  loadingTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  loadingStep: {
+    fontSize: 14,
+    color: '#4CAF50',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 4,
+    fontWeight: '500',
+  },
+  loadingSubtext: {
+    fontSize: 12,
+    color: '#999',
+    textAlign: 'center',
+    marginTop: 8,
   },
 });
 

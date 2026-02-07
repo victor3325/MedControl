@@ -1,0 +1,33 @@
+feat: Release com integração Google Calendar e melhorias de UX
+
+## Funcionalidades Principais
+
+### Integração Google Calendar
+- Criação automática de eventos ao cadastrar medicamentos
+- Atualização automática ao editar medicamentos
+- Remoção automática ao excluir medicamentos
+- Eventos recorrentes diários por 365 dias
+- Tela de seleção de calendário no primeiro acesso
+- Botão de sincronização com remoção de eventos órfãos
+
+### Melhorias de UX
+- Modais de carregamento com progresso detalhado em:
+  * Cadastro de medicamentos
+  * Edição de medicamentos
+  * Exclusão de medicamentos
+  * Sincronização de calendário
+- Layout de alergias em chips/badges
+- Simplificação da tela de suporte
+
+### Melhorias Técnicas
+- Atualização do Gradle para 8.10.2
+- Melhorias no MedicationRepository
+- Organização de estilos em arquivos dedicados
+- Correções de bugs e inconsistências
+
+### Dependências
+- Adicionado: react-native-calendar-events@^2.2.0
+
+Arquivos modificados: 14
+Novos arquivos: 2 (CalendarSelectionScreen, CalendarService)
+Linhas: +1144 / -319

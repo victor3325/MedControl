@@ -7,24 +7,102 @@ const db = openDatabase({ name: 'medcontrol.db' });
 const MedicationRepository = {
   createTable: () => {
     console.log('🔧 Criando tabela medications...');
-    db.transaction(tx => {
-      tx.executeSql(
-        `CREATE TABLE IF NOT EXISTS medications (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          userId INTEGER,
-          nome TEXT,
-          mgPorComprimido REAL,
-          mgPorDose REAL,
-          dosesPorDia INTEGER,
-          estoque INTEGER,
-          dataCadastro TEXT,
-          horarios TEXT
-        );`,
-        [],
-        () => console.log('✅ Tabela criada com sucesso'),
-        (_, error) => {
-          console.error('❌ Erro ao criar tabela:', error);
-          return true;
+    return new Promise((resolve) => {
+      resolve.called = false;
+      let tableCreated = false;
+      let columnChecked = false;
+      
+      db.transaction(
+        (tx) => {
+          // Primeiro cria a tabela
+          tx.executeSql(
+            `CREATE TABLE IF NOT EXISTS medications (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              userId INTEGER,
+              nome TEXT,
+              mgPorComprimido REAL,
+              mgPorDose REAL,
+              dosesPorDia INTEGER,
+              estoque INTEGER,
+              dataCadastro TEXT,
+              horarios TEXT,
+              calendarEventIds TEXT
+            );`,
+            [],
+            () => {
+              console.log('✅ Tabela criada/verificada com sucesso');
+              tableCreated = true;
+              
+              // Verifica se a coluna calendarEventIds existe antes de tentar adicionar
+              tx.executeSql(
+                `PRAGMA table_info(medications);`,
+                [],
+                (_, result) => {
+                  const columns = [];
+                  for (let i = 0; i < result.rows.length; i++) {
+                    columns.push(result.rows.item(i).name);
+                  }
+                  console.log('📋 Colunas existentes na tabela:', columns);
+                  columnChecked = true;
+                  
+                  if (!columns.includes('calendarEventIds')) {
+                    console.log('📋 Adicionando coluna calendarEventIds...');
+                    tx.executeSql(
+                      `ALTER TABLE medications ADD COLUMN calendarEventIds TEXT;`,
+                      [],
+                      () => {
+                        console.log('✅ Coluna calendarEventIds adicionada');
+                        if (!resolve.called) {
+                          resolve.called = true;
+                          resolve(true);
+                        }
+                      },
+                      (_, error) => {
+                        console.warn('⚠️ Erro ao adicionar coluna (pode já existir):', error?.message);
+                        if (!resolve.called) {
+                          resolve.called = true;
+                          resolve(true); // Continua mesmo se falhar
+                        }
+                      }
+                    );
+                  } else {
+                    console.log('ℹ️ Coluna calendarEventIds já existe');
+                    if (!resolve.called) {
+                      resolve.called = true;
+                      resolve(true);
+                    }
+                  }
+                },
+                (_, error) => {
+                  console.warn('⚠️ Erro ao verificar colunas (continuando):', error?.message);
+                  if (!resolve.called) {
+                    resolve.called = true;
+                    resolve(true); // Continua mesmo se falhar na verificação
+                  }
+                }
+              );
+            },
+            (_, error) => {
+              console.error('❌ Erro ao criar tabela:', error);
+              resolve(false);
+              return true;
+            }
+          );
+        },
+        (error) => {
+          console.error('❌ Erro na transação de criação de tabela:', error);
+          resolve(false);
+        },
+        () => {
+          console.log('✅ Transação de criação de tabela concluída');
+          // Garante que resolve se a transação terminar
+          setTimeout(() => {
+            if (!resolve.called) {
+              console.log('📋 Resolvendo Promise após conclusão da transação');
+              resolve.called = true;
+              resolve(true);
+            }
+          }, 300);
         }
       );
     });
@@ -32,36 +110,171 @@ const MedicationRepository = {
 
   createMedication: (medication) => {
     console.log('📦 Inserindo medicamento:', medication);
-    return new Promise(resolve => {
-      const dataCadastro = medication.dataCadastro
-        ? new Date(medication.dataCadastro).toISOString()
-        : new Date().toISOString();
-      db.transaction(tx => {
-        tx.executeSql(
-          `INSERT INTO medications
-            (userId, nome, mgPorComprimido, mgPorDose, dosesPorDia, estoque, dataCadastro, horarios)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
-          [
-            medication.userId,
-            medication.nome,
-            medication.mgPorComprimido,
-            medication.mgPorDose,
-            medication.dosesPorDia,
-            medication.estoque,
-            dataCadastro,
-            JSON.stringify(medication.horarios),
-          ],
-          (_, result) => {
-            console.log('✅ Medicamento inserido, ID:', result.insertId);
-            resolve(result.insertId);
-          },
-          (_, error) => {
-            console.error('❌ Erro ao inserir medicamento:', error);
+    return new Promise(async (resolve) => {
+      try {
+        // Garante que a tabela existe antes de inserir
+        console.log('📋 Verificando/criando tabela antes de inserir...');
+        const tableCreated = await MedicationRepository.createTable();
+        console.log('📋 Resultado da criação de tabela:', tableCreated);
+        
+        if (!tableCreated) {
+          console.error('❌ Falha ao criar tabela, tentando novamente...');
+          await new Promise(r => setTimeout(r, 300));
+          const retryResult = await MedicationRepository.createTable();
+          console.log('📋 Resultado da segunda tentativa:', retryResult);
+        }
+        
+        // Aguarda um pouco para garantir que a transação foi concluída
+        await new Promise(r => setTimeout(r, 200));
+        console.log('📋 Tabela verificada, prosseguindo com inserção...');
+
+        const dataCadastro = medication.dataCadastro
+          ? new Date(medication.dataCadastro).toISOString()
+          : new Date().toISOString();
+
+        // Validação de dados
+        if (!medication.nome || !medication.userId) {
+          console.error('❌ Erro: nome ou userId não fornecido');
+          resolve(null);
+          return;
+        }
+
+        console.log('📋 Valores que serão inseridos:', [
+          medication.userId || null,
+          medication.nome || '',
+          medication.mgPorComprimido ? parseFloat(medication.mgPorComprimido) || 0 : 0,
+          medication.mgPorDose ? parseFloat(medication.mgPorDose) || 0 : 0,
+          medication.dosesPorDia ? parseInt(medication.dosesPorDia) || 0 : 0,
+          medication.estoque ? parseInt(medication.estoque) || 0 : 0,
+          dataCadastro,
+          medication.horarios ? JSON.stringify(medication.horarios) : '[]',
+          medication.calendarEventIds ? JSON.stringify(medication.calendarEventIds) : null,
+        ]);
+
+        // Verifica se a tabela existe antes de inserir
+        const tableExists = await new Promise((tableResolve) => {
+          db.transaction((tx) => {
+            tx.executeSql(
+              "SELECT name FROM sqlite_master WHERE type='table' AND name='medications';",
+              [],
+              (_, result) => {
+                const exists = result.rows.length > 0;
+                console.log('📋 Tabela medications existe?', exists);
+                tableResolve(exists);
+              },
+              () => {
+                console.log('📋 Erro ao verificar tabela, assumindo que não existe');
+                tableResolve(false);
+              }
+            );
+          });
+        });
+
+        if (!tableExists) {
+          console.error('❌ Tabela não existe! Criando novamente...');
+          const created = await MedicationRepository.createTable();
+          console.log('📋 Tabela criada?', created);
+          // Aguarda um pouco mais para garantir que a transação foi concluída
+          await new Promise(r => setTimeout(r, 500));
+          
+          // Verifica novamente
+          const existsAfter = await new Promise((tableResolve) => {
+            db.transaction((tx) => {
+              tx.executeSql(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='medications';",
+                [],
+                (_, result) => {
+                  tableResolve(result.rows.length > 0);
+                },
+                () => tableResolve(false)
+              );
+            });
+          });
+          
+          if (!existsAfter) {
+            console.error('❌ Tabela ainda não existe após criação!');
             resolve(null);
-            return true;
+            return;
+          }
+        }
+
+        db.transaction(
+          (tx) => {
+            console.log('📋 Executando INSERT...');
+            tx.executeSql(
+              `INSERT INTO medications
+                (userId, nome, mgPorComprimido, mgPorDose, dosesPorDia, estoque, dataCadastro, horarios, calendarEventIds)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+              [
+                medication.userId || null,
+                medication.nome || '',
+                medication.mgPorComprimido ? parseFloat(medication.mgPorComprimido) || 0 : 0,
+                medication.mgPorDose ? parseFloat(medication.mgPorDose) || 0 : 0,
+                medication.dosesPorDia ? parseInt(medication.dosesPorDia) || 0 : 0,
+                medication.estoque ? parseInt(medication.estoque) || 0 : 0,
+                dataCadastro,
+                medication.horarios ? JSON.stringify(medication.horarios) : '[]',
+                medication.calendarEventIds ? JSON.stringify(medication.calendarEventIds) : null,
+              ],
+              (tx, result) => {
+                console.log('📋 Resultado do INSERT:', result);
+                const insertId = result.insertId || result.insertId || (result.rows && result.rows.insertId);
+                console.log('✅ Medicamento inserido, ID:', insertId);
+                if (!insertId) {
+                  // Tenta buscar o último ID inserido
+                  tx.executeSql('SELECT last_insert_rowid() as id;', [], (_, res) => {
+                    const id = res.rows.item(0).id;
+                    console.log('✅ ID obtido via last_insert_rowid:', id);
+                    resolve(id);
+                  });
+                } else {
+                  resolve(insertId);
+                }
+              },
+              (tx, error) => {
+                console.error('❌ Erro ao inserir medicamento no executeSql:');
+                console.error('❌ Erro:', error);
+                console.error('❌ Tipo:', typeof error);
+                if (error) {
+                  console.error('❌ Mensagem:', error.message);
+                  console.error('❌ Código:', error.code);
+                  console.error('❌ Stack:', error.stack);
+                }
+                // Tenta verificar se a tabela existe
+                tx.executeSql(
+                  "SELECT name FROM sqlite_master WHERE type='table' AND name='medications';",
+                  [],
+                  (_, result) => {
+                    if (result.rows.length === 0) {
+                      console.error('❌ Tabela medications não existe!');
+                    } else {
+                      console.log('✅ Tabela medications existe');
+                    }
+                  }
+                );
+                resolve(null);
+                return true;
+              }
+            );
+          },
+          (error) => {
+            console.error('❌ Erro na transação:');
+            console.error('❌ Erro:', error);
+            console.error('❌ Tipo:', typeof error);
+            if (error) {
+              console.error('❌ Mensagem:', error.message);
+              console.error('❌ Código:', error.code);
+            }
+            resolve(null);
+          },
+          () => {
+            console.log('✅ Transação concluída');
           }
         );
-      });
+      } catch (error) {
+        console.error('❌ Erro geral ao criar medicamento:', error);
+        resolve(null);
+      }
     });
   },
 
@@ -78,6 +291,13 @@ const MedicationRepository = {
               const item = rows.item(i);
               item.horarios = DateUtils.safeParseHorarios(item.horarios);
               item.dataCadastro = ensureISODate(item.dataCadastro);
+              // Parse seguro de calendarEventIds
+              try {
+                item.calendarEventIds = item.calendarEventIds ? JSON.parse(item.calendarEventIds) : [];
+              } catch (e) {
+                console.warn('[MedicationRepository] Erro ao fazer parse de calendarEventIds:', e);
+                item.calendarEventIds = [];
+              }
               meds.push(item);
             }
             console.log(`✅ ${meds.length} medicamentos encontrados.`);
@@ -106,6 +326,13 @@ const MedicationRepository = {
               const item = rows.item(i);
               item.horarios = DateUtils.safeParseHorarios(item.horarios);
               item.dataCadastro = ensureISODate(item.dataCadastro);
+              // Parse seguro de calendarEventIds
+              try {
+                item.calendarEventIds = item.calendarEventIds ? JSON.parse(item.calendarEventIds) : [];
+              } catch (e) {
+                console.warn('[MedicationRepository] Erro ao fazer parse de calendarEventIds:', e);
+                item.calendarEventIds = [];
+              }
               meds.push(item);
             }
             console.log(`✅ ${meds.length} medicamentos encontrados.`);
@@ -246,7 +473,7 @@ const MedicationRepository = {
       db.transaction(tx => {
         tx.executeSql(
           `UPDATE medications SET
-            nome = ?, mgPorComprimido = ?, mgPorDose = ?, dosesPorDia = ?, estoque = ?, horarios = ?, dataCadastro = ?
+            nome = ?, mgPorComprimido = ?, mgPorDose = ?, dosesPorDia = ?, estoque = ?, horarios = ?, dataCadastro = ?, calendarEventIds = ?
            WHERE id = ?;`,
           [
             med.nome,
@@ -256,6 +483,7 @@ const MedicationRepository = {
             med.estoque,
             JSON.stringify(med.horarios),
             dataCadastro,
+            med.calendarEventIds ? JSON.stringify(med.calendarEventIds) : null,
             med.id,
           ],
           (_, result) => {

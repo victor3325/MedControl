@@ -8,6 +8,7 @@ import MainTabs from './MainTabs';
 import CadastroMedicamentoScreen from '../screens/CadastroMedicamentoScreen';
 import EditarMedicamentoScreen from '../screens/EditarMedicamentoScreen';
 import TestNotificationScreen from '../screens/TestNotificationScreen';
+import CalendarSelectionScreen from '../screens/CalendarSelectionScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -20,6 +21,14 @@ export default function AppNavigator() {
         <Stack.Screen name="CadastroMedicamento" component={CadastroMedicamentoScreen} />
         <Stack.Screen name="EditarMedicamento" component={EditarMedicamentoScreen} />
         <Stack.Screen name="TestNotification" component={TestNotificationScreen} />
+        <Stack.Screen 
+          name="CalendarSelection" 
+          component={CalendarSelectionScreen}
+          options={{ 
+            headerShown: true,
+            title: 'Selecionar Calendário'
+          }} 
+        />
       </Stack.Navigator>
   );
 }
